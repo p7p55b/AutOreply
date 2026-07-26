@@ -6,6 +6,7 @@ import androidx.activity.EdgeToEdge;
 
 import com.google.android.material.snackbar.Snackbar;
 
+import android.content.Intent;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
@@ -72,6 +73,8 @@ public class MainActivity extends AppCompatActivity {
 
         //noinspection SimplifiableIfStatement
         if (id == R.id.action_settings) {
+            Intent intent = new Intent(this, SettingsActivity.class);
+            startActivity(intent);
             return true;
         }
 

@@ -42,6 +42,7 @@ dependencies {
     implementation libs.constraintlayout
     implementation libs.material
     implementation libs.navigation.fragment
+    implementation "androidx.preference:preference:1.2.1"
     implementation libs.navigation.ui
     testImplementation libs.junit
     androidTestImplementation libs.espresso.core
