@@ -12,11 +12,15 @@ import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
 
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class MyNotificationListenerService extends NotificationListenerService {
     private static final String TAG = "MyNotificationListener";
     private static final String GOOGLE_MESSAGES_PACKAGE = "com.google.android.apps.messaging";
+    private final Set<String> handledNotificationKeys = Collections.synchronizedSet(new HashSet<>());
 
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
@@ -31,15 +35,29 @@ public class MyNotificationListenerService extends NotificationListenerService {
         Log.d(TAG, "  text=" + stringOf(notification.extras.getCharSequence(Notification.EXTRA_TEXT)));
         Log.d(TAG, "  summary=" + stringOf(notification.extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT)));
 
+        String key = sbn.getKey();
+        if (key != null && handledNotificationKeys.contains(key)) {
+            Log.d(TAG, "Notification already handled: " + key);
+            return;
+        }
+
         List<ResponseConfig> responses = loadResponses();
+        boolean sent = false;
         for (ResponseConfig response : responses) {
             if (!matchesApp(response, sbn)) {
                 continue;
             }
             if (matchesVoiceCriteria(response, sbn)) {
                 Log.d(TAG, "Voice criteria matched for response: " + response.title);
-                performAutoReply(response, sbn);
+                if (performAutoReply(response, sbn)) {
+                    sent = true;
+                    break;
+                }
             }
+        }
+
+        if (sent && key != null) {
+            handledNotificationKeys.add(key);
         }
     }
 
@@ -112,19 +130,21 @@ public class MyNotificationListenerService extends NotificationListenerService {
         return ResponseConfig.listFromJson(raw);
     }
 
-    private void performAutoReply(ResponseConfig response, StatusBarNotification sbn) {
+    private boolean performAutoReply(ResponseConfig response, StatusBarNotification sbn) {
         Log.d(TAG, "Would send auto reply for " + sbn.getPackageName() + ": " + response.text);
 
         Notification notification = sbn.getNotification();
         if (notification == null) {
-            return;
+            return false;
         }
 
-        if (tryReplyViaNotificationAction(notification, response.text)) {
+        boolean sent = tryReplyViaNotificationAction(notification, response.text);
+        if (sent) {
             Log.d(TAG, "Auto-reply sent via notification action");
         } else {
             Log.d(TAG, "No reply action available for this notification");
         }
+        return sent;
     }
 
     private boolean tryReplyViaNotificationAction(Notification notification, String replyText) {
