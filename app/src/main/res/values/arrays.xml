@@ -8,4 +8,14 @@
         <item>fr</item>
         <item>en</item>
     </string-array>
+
+    <string-array name="reply_format_entries">
+        <item>Texte</item>
+        <item>Vocal</item>
+    </string-array>
+
+    <string-array name="reply_format_values">
+        <item>text</item>
+        <item>voice</item>
+    </string-array>
 </resources>

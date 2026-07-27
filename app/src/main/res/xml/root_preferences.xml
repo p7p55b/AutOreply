@@ -1,20 +1,76 @@
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <SwitchPreferenceCompat
-        android:key="dark_mode"
-        android:title="Mode sombre"
-        android:defaultValue="false" />
+    <PreferenceCategory android:title="Réponses automatiques">
+        <SwitchPreferenceCompat
+            android:key="auto_reply_enabled"
+            android:title="Activer la réponse automatique"
+            android:summary="Activer ou désactiver l'envoi automatique de réponses"
+            android:defaultValue="false" />
 
-    <ListPreference
-        android:key="language"
-        android:title="Langue"
-        android:entries="@array/languages_display"
-        android:entryValues="@array/languages_values"
-        android:defaultValue="fr" />
+        <PreferenceScreen
+            android:key="responses_screen"
+            android:title="Messages de réponse"
+            android:summary="Configurer les textes de réponse">
 
-    <Preference
-        android:key="verify_notification_permission"
-        android:title="Vérifier l'accès aux notifications"
-        android:summary="Ouvrir les paramètres d'accès aux notifications" />
+            <EditTextPreference
+                android:key="default_response"
+                android:title="Message de réponse par défaut"
+                android:summary="Texte envoyé si aucun autre critère n'est trouvé"
+                android:dialogTitle="Saisir le message de réponse"
+                android:defaultValue="Je suis occupé, je vous répondrai bientôt." />
+
+            <ListPreference
+                android:key="reply_format"
+                android:title="Format de réponse"
+                android:entries="@array/reply_format_entries"
+                android:entryValues="@array/reply_format_values"
+                android:defaultValue="text"
+                android:summary="%s" />
+        </PreferenceScreen>
+    </PreferenceCategory>
+
+    <PreferenceScreen
+        android:key="criteria_screen"
+        android:title="Critères de réponse"
+        android:summary="Mots, phrases et types de notifications">
+
+        <Preference
+            android:key="criteria_keywords"
+            android:title="Mots-clés et expressions"
+            android:summary="Gérer les mots ou phrases déclencheurs" />
+
+        <Preference
+            android:key="criteria_links"
+            android:title="Liens / réseaux sociaux"
+            android:summary="Gérer les patterns de liens et de réseaux sociaux" />
+
+        <Preference
+            android:key="criteria_voice"
+            android:title="Message vocal"
+            android:summary="Configurer la détection de message vocal" />
+    </PreferenceScreen>
+
+    <PreferenceScreen
+        android:key="exclusions_screen"
+        android:title="Exclusions"
+        android:summary="Applications et contacts à ignorer">
+
+        <Preference
+            android:key="exclude_apps"
+            android:title="Applications exclues"
+            android:summary="Sélectionner les applications à ignorer" />
+
+        <Preference
+            android:key="exclude_contacts"
+            android:title="Contacts exclus"
+            android:summary="Sélectionner les contacts à ignorer" />
+    </PreferenceScreen>
+
+    <PreferenceCategory android:title="Permissions">
+        <Preference
+            android:key="verify_notification_permission"
+            android:title="Vérifier l'accès aux notifications"
+            android:summary="Ouvrir les paramètres d'accès aux notifications" />
+    </PreferenceCategory>
 
 </PreferenceScreen>

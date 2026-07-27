@@ -50,11 +50,10 @@ public class MainActivity extends AppCompatActivity {
             NavigationUI.setupActionBarWithNavController(this, navController, appBarConfiguration);
         }
 
-        binding.fab.setOnClickListener(
-                view -> Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
-                        .setAnchorView(R.id.fab)
-                        .setAction("Action", null).show()
-        );
+        binding.fab.setOnClickListener(view -> {
+            Intent intent = new Intent(this, EditResponseActivity.class);
+            startActivity(intent);
+        });
     }
 
     @Override

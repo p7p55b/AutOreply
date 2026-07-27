@@ -6,6 +6,12 @@
     app:startDestination="@id/FirstFragment">
 
     <fragment
+        android:id="@+id/ResponseListFragment"
+        android:name="com.studiofoxxo.autoreply.ResponseListFragment"
+        android:label="@string/app_name"
+        tools:layout="@layout/fragment_response_list" />
+
+    <fragment
         android:id="@+id/FirstFragment"
         android:name="com.studiofoxxo.autoreply.FirstFragment"
         android:label="@string/first_fragment_label"
