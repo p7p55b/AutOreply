@@ -61,15 +61,17 @@
             android:summary="Sélectionner les applications à ignorer" />
 
         <Preference
-            android:key="detect_supported_apps"
-            android:title="Détecter les applications supportées"
-            android:summary="Détecter Google Messages, Discord et Telegram" />
-
-        <Preference
             android:key="exclude_contacts"
             android:title="Contacts exclus"
             android:summary="Sélectionner les contacts à ignorer" />
     </PreferenceScreen>
+
+    <PreferenceCategory android:title="Applications supportées">
+        <Preference
+            android:key="detect_supported_apps"
+            android:title="Détecter les applications supportées"
+            android:summary="Détecter Google Messages, Discord et Telegram" />
+    </PreferenceCategory>
 
     <PreferenceCategory android:title="Permissions">
         <Preference

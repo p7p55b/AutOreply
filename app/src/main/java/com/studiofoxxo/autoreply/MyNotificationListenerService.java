@@ -19,7 +19,6 @@ import java.util.Set;
 
 public class MyNotificationListenerService extends NotificationListenerService {
     private static final String TAG = "MyNotificationListener";
-    private static final String GOOGLE_MESSAGES_PACKAGE = "com.google.android.apps.messaging";
     private final Set<String> handledNotificationKeys = Collections.synchronizedSet(new HashSet<>());
 
     @Override
@@ -81,7 +80,7 @@ public class MyNotificationListenerService extends NotificationListenerService {
         if (!isVoiceTriggerSelected(response)) {
             return false;
         }
-        return isGoogleMessagesVoiceNote(sbn);
+        return isSupportedVoiceNotification(sbn);
     }
 
     private boolean isVoiceTriggerSelected(ResponseConfig response) {
@@ -89,13 +88,14 @@ public class MyNotificationListenerService extends NotificationListenerService {
                 trigger.equalsIgnoreCase("vocaux") || trigger.equalsIgnoreCase("voice") || trigger.equalsIgnoreCase("audio"));
     }
 
-    private boolean isGoogleMessagesVoiceNote(StatusBarNotification sbn) {
-        if (!GOOGLE_MESSAGES_PACKAGE.equals(sbn.getPackageName())) {
+    private boolean isSupportedVoiceNotification(StatusBarNotification sbn) {
+        Notification notification = sbn.getNotification();
+        if (notification == null) {
             return false;
         }
 
-        Notification notification = sbn.getNotification();
-        if (notification == null) {
+        String packageName = sbn.getPackageName();
+        if (!SupportedAppStore.isSupportedPackage(packageName)) {
             return false;
         }
 
@@ -106,8 +106,9 @@ public class MyNotificationListenerService extends NotificationListenerService {
                 stringOf(extras.getCharSequence(Notification.EXTRA_SUB_TEXT))).toLowerCase();
 
         if (content.contains("message vocal") || content.contains("audio message") ||
-                content.contains("message audio") || content.contains("audio")) {
-            Log.d(TAG, "Detected voice note by content string");
+                content.contains("message audio") || content.contains("audio") ||
+                content.contains("voice message") || content.contains("voice note")) {
+            Log.d(TAG, "Detected voice note by content string for " + packageName);
             return true;
         }
 
@@ -117,7 +118,7 @@ public class MyNotificationListenerService extends NotificationListenerService {
                 String mimeType = message.getDataMimeType();
                 Log.d(TAG, "Message mimeType=" + mimeType + " text=" + message.getText());
                 if (mimeType != null && mimeType.startsWith("audio/")) {
-                    Log.d(TAG, "Detected voice note by mimeType");
+                    Log.d(TAG, "Detected voice note by mimeType for " + packageName);
                     return true;
                 }
             }

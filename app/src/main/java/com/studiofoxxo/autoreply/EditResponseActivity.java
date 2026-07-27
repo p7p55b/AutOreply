@@ -47,7 +47,7 @@ public class EditResponseActivity extends AppCompatActivity {
     private void setupUi() {
         binding.responseTitle.setText(response.title);
         binding.responseText.setText(response.text);
-        binding.responseApps.setText(response.allApps ? "Toutes les applications" : TextUtils.join(", ", response.allowedApps));
+        binding.responseApps.setText(response.allApps ? "Toutes les applications" : formatAppLabels(response.allowedApps));
         binding.responseTriggers.setText(response.triggers.isEmpty() ? "Aucun critère" : TextUtils.join(", ", response.triggers));
 
         binding.saveButton.setOnClickListener(v -> saveResponse());
@@ -97,20 +97,21 @@ public class EditResponseActivity extends AppCompatActivity {
     }
 
     private void selectApps() {
-        List<String> supportedPackages = SupportedAppStore.getPersistedSupportedApps(this);
-        if (supportedPackages.isEmpty()) {
-            supportedPackages = SupportedAppStore.detectSupportedApps(this);
+        List<String> detected = SupportedAppStore.getPersistedSupportedApps(this);
+        if (detected.isEmpty()) {
+            detected = SupportedAppStore.detectSupportedApps(this);
         }
 
-        List<String> packageNames = new ArrayList<>(supportedPackages);
+        final List<String> packageNames = detected;
+
+        if (packageNames.isEmpty()) {
+            Toast.makeText(this, "Aucune application compatible détectée. Utilisez la fonction de détection dans les réglages.", Toast.LENGTH_LONG).show();
+            return;
+        }
+
         List<String> displayNames = new ArrayList<>();
         for (String packageName : packageNames) {
             displayNames.add(SupportedAppStore.getDefaultLabel(packageName));
-        }
-
-        if (packageNames.isEmpty()) {
-            Toast.makeText(this, "Aucune application supportée détectée. Utilisez la fonction de détection dans les réglages.", Toast.LENGTH_LONG).show();
-            return;
         }
 
         boolean voiceSelected = isVoiceTriggerSelected(response);
@@ -121,7 +122,7 @@ public class EditResponseActivity extends AppCompatActivity {
         }
 
         new AlertDialog.Builder(this)
-                .setTitle("Applications autorisées")
+                .setTitle("Applications compatibles")
                 .setMultiChoiceItems(displayNames.toArray(new String[0]), selected, (dialog, which, isChecked) -> selected[which] = isChecked)
                 .setPositiveButton("OK", (dialog, which) -> {
                     response.allowedApps.clear();
@@ -134,7 +135,7 @@ public class EditResponseActivity extends AppCompatActivity {
                         Toast.makeText(this, "Pour les vocaux, choisissez au moins une application", Toast.LENGTH_SHORT).show();
                     }
                     response.allApps = !voiceSelected && response.allowedApps.isEmpty();
-                    binding.responseApps.setText(response.allApps ? "Toutes les applications" : TextUtils.join(", ", response.allowedApps));
+                    binding.responseApps.setText(response.allApps ? "Toutes les applications" : formatAppLabels(response.allowedApps));
                 })
                 .setNegativeButton("Annuler", null)
                 .show();
@@ -171,6 +172,14 @@ public class EditResponseActivity extends AppCompatActivity {
                 })
                 .setNegativeButton("Annuler", null)
                 .show();
+    }
+
+    private String formatAppLabels(List<String> packageNames) {
+        List<String> labels = new ArrayList<>();
+        for (String packageName : packageNames) {
+            labels.add(SupportedAppStore.getDefaultLabel(packageName));
+        }
+        return TextUtils.join(", ", labels);
     }
 
     private static List<ResponseConfig> loadResponses(Context context) {

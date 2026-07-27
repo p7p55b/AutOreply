@@ -4,6 +4,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.widget.Toast;
+
+import java.util.List;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.NotificationManagerCompat;
@@ -45,9 +48,9 @@ public class SettingsActivity extends AppCompatActivity {
                 detectAppsPref.setOnPreferenceClickListener(preference -> {
                     int count = SupportedAppStore.detectSupportedApps(requireContext()).size();
                     updateDetectAppsSummary(detectAppsPref);
-                    preference.setSummary(count > 0
-                            ? count + " applications supportées détectées"
-                            : "Aucune application supportée détectée");
+                    Toast.makeText(requireContext(),
+                            count > 0 ? count + " applications supportées détectées" : "Aucune application supportée détectée",
+                            Toast.LENGTH_SHORT).show();
                     return true;
                 });
             }

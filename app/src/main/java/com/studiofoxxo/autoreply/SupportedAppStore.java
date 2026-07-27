@@ -19,7 +19,9 @@ public class SupportedAppStore {
     static {
         KNOWN_SUPPORTED_APPS.put("com.google.android.apps.messaging", "Google Messages");
         KNOWN_SUPPORTED_APPS.put("com.discord", "Discord");
+        KNOWN_SUPPORTED_APPS.put("com.discord.beta", "Discord Beta");
         KNOWN_SUPPORTED_APPS.put("org.telegram.messenger", "Telegram");
+        KNOWN_SUPPORTED_APPS.put("org.thunderdog.challegram", "Telegram X");
     }
 
     public static List<String> detectSupportedApps(Context context) {
