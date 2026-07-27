@@ -27,6 +27,14 @@
             android:layout_marginTop="4dp"
             android:text="Résumé du message de réponse"
             android:textAppearance="?attr/textAppearanceBody2" />
+
+        <TextView
+            android:id="@+id/response_info"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Apps : toutes · Critères : aucun"
+            android:textAppearance="?attr/textAppearanceCaption" />
     </LinearLayout>
 
 </androidx.cardview.widget.CardView>

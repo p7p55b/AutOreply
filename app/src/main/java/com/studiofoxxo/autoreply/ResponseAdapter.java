@@ -37,12 +37,19 @@ public class ResponseAdapter extends RecyclerView.Adapter<ResponseAdapter.ViewHo
         ResponseConfig response = responses.get(position);
         holder.binding.responseTitle.setText(response.title);
         holder.binding.responseSummary.setText(response.text);
+        holder.binding.responseInfo.setText(buildInfo(response));
         holder.binding.getRoot().setOnClickListener(v -> listener.onClick(response));
     }
 
     @Override
     public int getItemCount() {
         return responses.size();
+    }
+
+    private String buildInfo(ResponseConfig response) {
+        String apps = response.allApps ? "Toutes les applications" : String.join(", ", response.allowedApps);
+        String triggers = response.triggers.isEmpty() ? "Aucun critère" : String.join(", ", response.triggers);
+        return "Apps : " + apps + " · Critères : " + triggers;
     }
 
     static class ViewHolder extends RecyclerView.ViewHolder {

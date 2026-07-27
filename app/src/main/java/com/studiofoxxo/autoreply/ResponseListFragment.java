@@ -34,16 +34,38 @@ public class ResponseListFragment extends Fragment {
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
-        responses = loadResponses(requireContext());
-
-        adapter = new ResponseAdapter(responses, this::onResponseClicked);
-        binding.responseRecycler.setLayoutManager(new LinearLayoutManager(requireContext()));
-        binding.responseRecycler.setAdapter(adapter);
+        setupRecyclerView();
 
         binding.fab.setOnClickListener(v -> {
             Intent intent = new Intent(requireContext(), EditResponseActivity.class);
             startActivity(intent);
         });
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        reloadResponses();
+    }
+
+    private void setupRecyclerView() {
+        responses = loadResponses(requireContext());
+        adapter = new ResponseAdapter(responses, this::onResponseClicked);
+        binding.responseRecycler.setLayoutManager(new LinearLayoutManager(requireContext()));
+        binding.responseRecycler.setAdapter(adapter);
+        showEmptyState(responses.isEmpty());
+    }
+
+    private void reloadResponses() {
+        responses.clear();
+        responses.addAll(loadResponses(requireContext()));
+        adapter.notifyDataSetChanged();
+        showEmptyState(responses.isEmpty());
+    }
+
+    private void showEmptyState(boolean empty) {
+        binding.emptyView.setVisibility(empty ? View.VISIBLE : View.GONE);
+        binding.responseRecycler.setVisibility(empty ? View.GONE : View.VISIBLE);
     }
 
     private void onResponseClicked(ResponseConfig response) {
