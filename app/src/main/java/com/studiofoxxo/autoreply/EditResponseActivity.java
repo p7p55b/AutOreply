@@ -2,6 +2,8 @@ package com.studiofoxxo.autoreply;
 
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.widget.Toast;
@@ -62,8 +64,17 @@ public class EditResponseActivity extends AppCompatActivity {
         }
         response.title = title;
         response.text = text;
+        if (isVoiceTriggerSelected(response) && response.allowedApps.isEmpty()) {
+            Toast.makeText(this, "Pour les vocaux, choisissez au moins une application", Toast.LENGTH_SHORT).show();
+            return;
+        }
         saveResponseConfig(response);
         finish();
+    }
+
+    private boolean isVoiceTriggerSelected(ResponseConfig response) {
+        return response.triggers.stream().anyMatch(trigger ->
+                trigger.equalsIgnoreCase("vocaux") || trigger.equalsIgnoreCase("voice") || trigger.equalsIgnoreCase("audio"));
     }
 
     private void saveResponseConfig(ResponseConfig response) {
@@ -86,7 +97,42 @@ public class EditResponseActivity extends AppCompatActivity {
     }
 
     private void selectApps() {
-        // TODO: afficher un dialogue de sélection des applications
+        PackageManager pm = getPackageManager();
+        List<ApplicationInfo> apps = pm.getInstalledApplications(PackageManager.GET_META_DATA);
+        List<String> packageNames = new ArrayList<>();
+        List<String> displayNames = new ArrayList<>();
+        for (ApplicationInfo app : apps) {
+            if (pm.getLaunchIntentForPackage(app.packageName) != null) {
+                packageNames.add(app.packageName);
+                displayNames.add(pm.getApplicationLabel(app).toString());
+            }
+        }
+
+        boolean voiceSelected = isVoiceTriggerSelected(response);
+        boolean allAllowed = response.allApps && !voiceSelected;
+        boolean[] selected = new boolean[packageNames.size()];
+        for (int i = 0; i < packageNames.size(); i++) {
+            selected[i] = allAllowed || response.allowedApps.contains(packageNames.get(i));
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Applications autorisées")
+                .setMultiChoiceItems(displayNames.toArray(new String[0]), selected, (dialog, which, isChecked) -> selected[which] = isChecked)
+                .setPositiveButton("OK", (dialog, which) -> {
+                    response.allowedApps.clear();
+                    for (int i = 0; i < packageNames.size(); i++) {
+                        if (selected[i]) {
+                            response.allowedApps.add(packageNames.get(i));
+                        }
+                    }
+                    if (voiceSelected && response.allowedApps.isEmpty()) {
+                        Toast.makeText(this, "Pour les vocaux, choisissez au moins une application", Toast.LENGTH_SHORT).show();
+                    }
+                    response.allApps = !voiceSelected && response.allowedApps.isEmpty();
+                    binding.responseApps.setText(response.allApps ? "Toutes les applications" : TextUtils.join(", ", response.allowedApps));
+                })
+                .setNegativeButton("Annuler", null)
+                .show();
     }
 
     private void selectTriggers() {

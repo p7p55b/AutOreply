@@ -69,18 +69,24 @@ public class MyNotificationListenerService extends NotificationListenerService {
 
     private boolean matchesApp(ResponseConfig response, StatusBarNotification sbn) {
         if (response.allApps) {
+            if (isVoiceTriggerSelected(response) && response.allowedApps.isEmpty()) {
+                return false;
+            }
             return true;
         }
         return response.allowedApps.contains(sbn.getPackageName());
     }
 
     private boolean matchesVoiceCriteria(ResponseConfig response, StatusBarNotification sbn) {
-        boolean wantsVoice = response.triggers.stream().anyMatch(trigger ->
-                trigger.equalsIgnoreCase("vocaux") || trigger.equalsIgnoreCase("voice") || trigger.equalsIgnoreCase("audio"));
-        if (!wantsVoice) {
+        if (!isVoiceTriggerSelected(response)) {
             return false;
         }
         return isGoogleMessagesVoiceNote(sbn);
+    }
+
+    private boolean isVoiceTriggerSelected(ResponseConfig response) {
+        return response.triggers.stream().anyMatch(trigger ->
+                trigger.equalsIgnoreCase("vocaux") || trigger.equalsIgnoreCase("voice") || trigger.equalsIgnoreCase("audio"));
     }
 
     private boolean isGoogleMessagesVoiceNote(StatusBarNotification sbn) {
