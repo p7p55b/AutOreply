@@ -47,7 +47,18 @@ public class ResponseAdapter extends RecyclerView.Adapter<ResponseAdapter.ViewHo
     }
 
     private String buildInfo(ResponseConfig response) {
-        String apps = response.allApps ? "Toutes les applications" : String.join(", ", response.allowedApps);
+        String apps;
+        if (response.allApps) {
+            apps = "Toutes les applications";
+        } else {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < response.allowedApps.size(); i++) {
+                if (i > 0) sb.append(", ");
+                sb.append(SupportedAppStore.getDefaultLabel(response.allowedApps.get(i)));
+            }
+            apps = sb.toString();
+        }
+
         String triggers = response.triggers.isEmpty() ? "Aucun critère" : String.join(", ", response.triggers);
         return "Apps : " + apps + " · Critères : " + triggers;
     }
