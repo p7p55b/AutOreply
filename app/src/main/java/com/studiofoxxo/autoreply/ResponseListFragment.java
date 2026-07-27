@@ -10,7 +10,7 @@ import android.view.ViewGroup;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
-import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.studiofoxxo.autoreply.databinding.FragmentResponseListBinding;
@@ -50,9 +50,25 @@ public class ResponseListFragment extends Fragment {
 
     private void setupRecyclerView() {
         responses = loadResponses(requireContext());
-        adapter = new ResponseAdapter(responses, this::onResponseClicked);
-        binding.responseRecycler.setLayoutManager(new LinearLayoutManager(requireContext()));
+        adapter = new ResponseAdapter(responses, this::onResponseClicked, this::onResponseDelete);
+        binding.responseRecycler.setLayoutManager(new GridLayoutManager(requireContext(), 2));
         binding.responseRecycler.setAdapter(adapter);
+        showEmptyState(responses.isEmpty());
+    }
+
+    private void onResponseDelete(ResponseConfig response) {
+        // remove from list and persist
+        for (int i = 0; i < responses.size(); i++) {
+            if (responses.get(i).title.equals(response.title)) {
+                responses.remove(i);
+                break;
+            }
+        }
+        getContext().getSharedPreferences("autoreply_prefs", Context.MODE_PRIVATE)
+                .edit()
+                .putString("responses_list", ResponseConfig.listToJson(responses))
+                .apply();
+        adapter.notifyDataSetChanged();
         showEmptyState(responses.isEmpty());
     }
 

@@ -17,12 +17,17 @@ public class ResponseAdapter extends RecyclerView.Adapter<ResponseAdapter.ViewHo
         void onClick(ResponseConfig response);
     }
 
+    public interface OnResponseDeleteListener {
+        void onDelete(ResponseConfig response);
+    }
+
     private final List<ResponseConfig> responses;
     private final OnResponseClickListener listener;
-
-    public ResponseAdapter(List<ResponseConfig> responses, OnResponseClickListener listener) {
+    private final OnResponseDeleteListener deleteListener;
+    public ResponseAdapter(List<ResponseConfig> responses, OnResponseClickListener listener, OnResponseDeleteListener deleteListener) {
         this.responses = responses;
         this.listener = listener;
+        this.deleteListener = deleteListener;
     }
 
     @NonNull
@@ -39,6 +44,18 @@ public class ResponseAdapter extends RecyclerView.Adapter<ResponseAdapter.ViewHo
         holder.binding.responseSummary.setText(response.text);
         holder.binding.responseInfo.setText(buildInfo(response));
         holder.binding.getRoot().setOnClickListener(v -> listener.onClick(response));
+        holder.binding.deleteButton.setOnClickListener(v -> {
+            if (deleteListener != null) deleteListener.onDelete(response);
+        });
+
+        // Make tile roughly square: set height equal to measured width
+        holder.binding.getRoot().post(() -> {
+            int w = holder.binding.getRoot().getWidth();
+            if (w > 0 && holder.binding.getRoot().getHeight() != w) {
+                holder.binding.getRoot().getLayoutParams().height = w;
+                holder.binding.getRoot().requestLayout();
+            }
+        });
     }
 
     @Override
