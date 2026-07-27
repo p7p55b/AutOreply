@@ -97,15 +97,20 @@ public class EditResponseActivity extends AppCompatActivity {
     }
 
     private void selectApps() {
-        PackageManager pm = getPackageManager();
-        List<ApplicationInfo> apps = pm.getInstalledApplications(PackageManager.GET_META_DATA);
-        List<String> packageNames = new ArrayList<>();
+        List<String> supportedPackages = SupportedAppStore.getPersistedSupportedApps(this);
+        if (supportedPackages.isEmpty()) {
+            supportedPackages = SupportedAppStore.detectSupportedApps(this);
+        }
+
+        List<String> packageNames = new ArrayList<>(supportedPackages);
         List<String> displayNames = new ArrayList<>();
-        for (ApplicationInfo app : apps) {
-            if (pm.getLaunchIntentForPackage(app.packageName) != null) {
-                packageNames.add(app.packageName);
-                displayNames.add(pm.getApplicationLabel(app).toString());
-            }
+        for (String packageName : packageNames) {
+            displayNames.add(SupportedAppStore.getDefaultLabel(packageName));
+        }
+
+        if (packageNames.isEmpty()) {
+            Toast.makeText(this, "Aucune application supportée détectée. Utilisez la fonction de détection dans les réglages.", Toast.LENGTH_LONG).show();
+            return;
         }
 
         boolean voiceSelected = isVoiceTriggerSelected(response);

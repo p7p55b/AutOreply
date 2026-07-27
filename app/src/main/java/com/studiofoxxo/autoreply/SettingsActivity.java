@@ -38,12 +38,41 @@ public class SettingsActivity extends AppCompatActivity {
                     return true;
                 });
             }
+
+            Preference detectAppsPref = findPreference("detect_supported_apps");
+            if (detectAppsPref != null) {
+                updateDetectAppsSummary(detectAppsPref);
+                detectAppsPref.setOnPreferenceClickListener(preference -> {
+                    int count = SupportedAppStore.detectSupportedApps(requireContext()).size();
+                    updateDetectAppsSummary(detectAppsPref);
+                    preference.setSummary(count > 0
+                            ? count + " applications supportées détectées"
+                            : "Aucune application supportée détectée");
+                    return true;
+                });
+            }
         }
 
         private boolean isNotificationAccessGranted() {
             Context context = requireContext();
             return NotificationManagerCompat.getEnabledListenerPackages(context)
                 .contains(context.getPackageName());
+        }
+
+        private void updateDetectAppsSummary(Preference preference) {
+            List<String> supported = SupportedAppStore.getPersistedSupportedApps(requireContext());
+            if (supported.isEmpty()) {
+                preference.setSummary("Aucune application supportée détectée");
+            } else {
+                StringBuilder labels = new StringBuilder();
+                for (int i = 0; i < supported.size(); i++) {
+                    if (i > 0) {
+                        labels.append(", ");
+                    }
+                    labels.append(SupportedAppStore.getDefaultLabel(supported.get(i)));
+                }
+                preference.setSummary("Détecté : " + labels.toString());
+            }
         }
     }
 }
