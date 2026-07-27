@@ -12,4 +12,9 @@
         android:entryValues="@array/languages_values"
         android:defaultValue="fr" />
 
+    <Preference
+        android:key="verify_notification_permission"
+        android:title="Vérifier l'accès aux notifications"
+        android:summary="Ouvrir les paramètres d'accès aux notifications" />
+
 </PreferenceScreen>
