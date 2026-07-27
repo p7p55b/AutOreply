@@ -1,7 +1,10 @@
 package com.studiofoxxo.autoreply;
 
 import android.app.Notification;
+import android.app.PendingIntent;
+import android.app.RemoteInput;
 import android.content.Context;
+import android.content.Intent;
 import android.os.Bundle;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
@@ -22,6 +25,11 @@ public class MyNotificationListenerService extends NotificationListenerService {
         if (notification == null) {
             return;
         }
+
+        Log.d(TAG, "Notification posted: package=" + sbn.getPackageName());
+        Log.d(TAG, "  title=" + stringOf(notification.extras.getCharSequence(Notification.EXTRA_TITLE)));
+        Log.d(TAG, "  text=" + stringOf(notification.extras.getCharSequence(Notification.EXTRA_TEXT)));
+        Log.d(TAG, "  summary=" + stringOf(notification.extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT)));
 
         List<ResponseConfig> responses = loadResponses();
         for (ResponseConfig response : responses) {
@@ -75,6 +83,7 @@ public class MyNotificationListenerService extends NotificationListenerService {
 
         if (content.contains("message vocal") || content.contains("audio message") ||
                 content.contains("message audio") || content.contains("audio")) {
+            Log.d(TAG, "Detected voice note by content string");
             return true;
         }
 
@@ -82,7 +91,9 @@ public class MyNotificationListenerService extends NotificationListenerService {
         if (style != null) {
             for (NotificationCompat.MessagingStyle.Message message : style.getMessages()) {
                 String mimeType = message.getDataMimeType();
+                Log.d(TAG, "Message mimeType=" + mimeType + " text=" + message.getText());
                 if (mimeType != null && mimeType.startsWith("audio/")) {
+                    Log.d(TAG, "Detected voice note by mimeType");
                     return true;
                 }
             }
@@ -103,6 +114,50 @@ public class MyNotificationListenerService extends NotificationListenerService {
 
     private void performAutoReply(ResponseConfig response, StatusBarNotification sbn) {
         Log.d(TAG, "Would send auto reply for " + sbn.getPackageName() + ": " + response.text);
-        // TODO: implémenter l'envoi réel du message de réponse.
+
+        Notification notification = sbn.getNotification();
+        if (notification == null) {
+            return;
+        }
+
+        if (tryReplyViaNotificationAction(notification, response.text)) {
+            Log.d(TAG, "Auto-reply sent via notification action");
+        } else {
+            Log.d(TAG, "No reply action available for this notification");
+        }
+    }
+
+    private boolean tryReplyViaNotificationAction(Notification notification, String replyText) {
+        if (notification.actions == null) {
+            return false;
+        }
+
+        for (Notification.Action action : notification.actions) {
+            if (action == null || action.title == null) {
+                continue;
+            }
+            String title = action.title.toString().toLowerCase();
+            if (title.contains("reply") || title.contains("répondre") || title.contains("reply all") || title.contains("réponse")) {
+                PendingIntent pendingIntent = action.actionIntent;
+                RemoteInput remoteInput = null;
+                if (action.getRemoteInputs() != null && action.getRemoteInputs().length > 0) {
+                    remoteInput = action.getRemoteInputs()[0];
+                }
+                if (pendingIntent != null && remoteInput != null) {
+                    Intent intent = new Intent();
+                    Bundle bundle = new Bundle();
+                    bundle.putCharSequence(remoteInput.getResultKey(), replyText);
+                    RemoteInput.addResultsToIntent(new RemoteInput[]{remoteInput}, intent, bundle);
+                    try {
+                        pendingIntent.send(this, 0, intent);
+                        return true;
+                    } catch (PendingIntent.CanceledException e) {
+                        Log.e(TAG, "Failed to send reply intent", e);
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 }

@@ -97,8 +97,9 @@ public class EditResponseActivity extends AppCompatActivity {
         };
         boolean[] selected = new boolean[options.length];
         for (int i = 0; i < options.length; i++) {
+            String option = options[i];
             selected[i] = response.triggers.stream()
-                    .anyMatch(trigger -> trigger.equalsIgnoreCase(options[i]));
+                    .anyMatch(trigger -> trigger.equalsIgnoreCase(option));
         }
 
         new AlertDialog.Builder(this)
