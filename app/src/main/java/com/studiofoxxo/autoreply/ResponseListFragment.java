@@ -48,7 +48,12 @@ public class ResponseListFragment extends Fragment {
 
     private void onResponseClicked(ResponseConfig response) {
         Intent intent = new Intent(requireContext(), EditResponseActivity.class);
-        intent.putExtra("response_json", response.toJson().toString());
+        try {
+            intent.putExtra("response_json", response.toJson().toString());
+        } catch (org.json.JSONException e) {
+            e.printStackTrace();
+            intent.putExtra("response_json", "");
+        }
         startActivity(intent);
     }
 
