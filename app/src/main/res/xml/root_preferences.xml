@@ -62,8 +62,14 @@
 
         <Preference
             android:key="exclude_contacts"
-            android:title="Contacts exclus"
-            android:summary="Sélectionner les contacts à ignorer" />
+            android:title="Whitelist d'utilisateurs"
+            android:summary="Ajouter un contact autorisé"
+            android:selectable="true" />
+
+        <Preference
+            android:key="clear_contact_whitelist"
+            android:title="Effacer la whitelist"
+            android:summary="Supprimer tous les contacts autorisés" />
     </PreferenceScreen>
 
     <PreferenceCategory android:title="Applications supportées">

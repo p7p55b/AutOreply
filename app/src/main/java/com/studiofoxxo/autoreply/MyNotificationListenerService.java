@@ -40,6 +40,11 @@ public class MyNotificationListenerService extends NotificationListenerService {
             return;
         }
 
+        if (!matchesUserWhitelist(sbn)) {
+            Log.d(TAG, "Notification skipped because sender is not whitelisted");
+            return;
+        }
+
         List<ResponseConfig> responses = loadResponses();
         boolean sent = false;
         for (ResponseConfig response : responses) {
@@ -74,6 +79,56 @@ public class MyNotificationListenerService extends NotificationListenerService {
             return true;
         }
         return response.allowedApps.contains(sbn.getPackageName());
+    }
+
+    private boolean matchesUserWhitelist(StatusBarNotification sbn) {
+        List<ContactWhitelistStore.ContactEntry> whitelist = ContactWhitelistStore.getContacts(this);
+        if (whitelist.isEmpty()) {
+            return true;
+        }
+
+        Notification notification = sbn.getNotification();
+        if (notification == null) {
+            return false;
+        }
+
+        String title = stringOf(notification.extras.getCharSequence(Notification.EXTRA_TITLE));
+        String text = stringOf(notification.extras.getCharSequence(Notification.EXTRA_TEXT));
+        String summary = stringOf(notification.extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT));
+        String subText = stringOf(notification.extras.getCharSequence(Notification.EXTRA_SUB_TEXT));
+        StringBuilder sourceBuilder = new StringBuilder(title)
+                .append(" ")
+                .append(text)
+                .append(" ")
+                .append(summary)
+                .append(" ")
+                .append(subText);
+
+        NotificationCompat.MessagingStyle style = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(notification);
+        if (style != null) {
+            if (style.getUser() != null && style.getUser().getName() != null) {
+                sourceBuilder.append(" ").append(style.getUser().getName());
+            }
+            for (NotificationCompat.MessagingStyle.Message message : style.getMessages()) {
+                if (message.getSenderPerson() != null && message.getSenderPerson().getName() != null) {
+                    sourceBuilder.append(" ").append(message.getSenderPerson().getName());
+                } else if (message.getSender() != null) {
+                    sourceBuilder.append(" ").append(message.getSender());
+                }
+            }
+        }
+
+        String source = sourceBuilder.toString().toLowerCase();
+        for (ContactWhitelistStore.ContactEntry contact : whitelist) {
+            if (contact == null || contact.displayName == null || contact.displayName.trim().isEmpty()) {
+                continue;
+            }
+            String candidate = contact.displayName.trim().toLowerCase();
+            if (source.contains(candidate)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean matchesVoiceCriteria(ResponseConfig response, StatusBarNotification sbn) {
