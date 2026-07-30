@@ -110,8 +110,8 @@ public class MyNotificationListenerService extends NotificationListenerService {
                 sourceBuilder.append(" ").append(style.getUser().getName());
             }
             for (NotificationCompat.MessagingStyle.Message message : style.getMessages()) {
-                if (message.getSenderPerson() != null && message.getSenderPerson().getName() != null) {
-                    sourceBuilder.append(" ").append(message.getSenderPerson().getName());
+                if (message.getPerson() != null && message.getPerson().getName() != null) {
+                    sourceBuilder.append(" ").append(message.getPerson().getName());
                 } else if (message.getSender() != null) {
                     sourceBuilder.append(" ").append(message.getSender());
                 }
