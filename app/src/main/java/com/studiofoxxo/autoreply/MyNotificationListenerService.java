@@ -15,6 +15,7 @@ import androidx.core.app.NotificationCompat;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 public class MyNotificationListenerService extends NotificationListenerService {
@@ -51,8 +52,12 @@ public class MyNotificationListenerService extends NotificationListenerService {
             if (!matchesApp(response, sbn)) {
                 continue;
             }
-            if (matchesVoiceCriteria(response, sbn)) {
-                Log.d(TAG, "Voice criteria matched for response: " + response.title);
+            if (matchesExcludedContacts(response, sbn)) {
+                Log.d(TAG, "Skipping response '" + response.title + "' because sender is in excluded contacts");
+                continue;
+            }
+            if (matchesResponseCriteria(response, sbn)) {
+                Log.d(TAG, "Response criteria matched for response: " + response.title);
                 if (performAutoReply(response, sbn)) {
                     sent = true;
                     break;
@@ -83,6 +88,7 @@ public class MyNotificationListenerService extends NotificationListenerService {
 
     private boolean matchesUserWhitelist(StatusBarNotification sbn) {
         List<ContactWhitelistStore.ContactEntry> whitelist = ContactWhitelistStore.getContacts(this);
+        Log.d(TAG, "Whitelist loaded: " + ContactWhitelistStore.getWhitelistSummary(this));
         if (whitelist.isEmpty()) {
             return true;
         }
@@ -92,17 +98,46 @@ public class MyNotificationListenerService extends NotificationListenerService {
             return false;
         }
 
-        String title = stringOf(notification.extras.getCharSequence(Notification.EXTRA_TITLE));
-        String text = stringOf(notification.extras.getCharSequence(Notification.EXTRA_TEXT));
-        String summary = stringOf(notification.extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT));
-        String subText = stringOf(notification.extras.getCharSequence(Notification.EXTRA_SUB_TEXT));
+        Bundle extras = notification.extras;
+        String title = stringOf(extras.getCharSequence(Notification.EXTRA_TITLE));
+        String text = stringOf(extras.getCharSequence(Notification.EXTRA_TEXT));
+        String summary = stringOf(extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT));
+        String subText = stringOf(extras.getCharSequence(Notification.EXTRA_SUB_TEXT));
+        String titleBig = stringOf(extras.getCharSequence(Notification.EXTRA_TITLE_BIG));
+        String conversationTitle = stringOf(extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE));
         StringBuilder sourceBuilder = new StringBuilder(title)
+                .append(" ")
+                .append(titleBig)
+                .append(" ")
+                .append(conversationTitle)
                 .append(" ")
                 .append(text)
                 .append(" ")
                 .append(summary)
                 .append(" ")
                 .append(subText);
+
+        CharSequence[] textLines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES);
+        if (textLines != null) {
+            for (CharSequence line : textLines) {
+                sourceBuilder.append(" ").append(stringOf(line));
+            }
+        }
+
+        if (extras.containsKey(Notification.EXTRA_INFO_TEXT)) {
+            sourceBuilder.append(" ").append(stringOf(extras.getCharSequence(Notification.EXTRA_INFO_TEXT)));
+        }
+
+        for (String key : extras.keySet()) {
+            Object value = extras.get(key);
+            if (value instanceof CharSequence) {
+                sourceBuilder.append(" ").append(stringOf((CharSequence) value));
+            } else if (value instanceof CharSequence[]) {
+                for (CharSequence item : (CharSequence[]) value) {
+                    sourceBuilder.append(" ").append(stringOf(item));
+                }
+            }
+        }
 
         NotificationCompat.MessagingStyle style = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(notification);
         if (style != null) {
@@ -115,27 +150,91 @@ public class MyNotificationListenerService extends NotificationListenerService {
                 } else if (message.getSender() != null) {
                     sourceBuilder.append(" ").append(message.getSender());
                 }
+                sourceBuilder.append(" ").append(stringOf(message.getText()));
             }
         }
 
         String source = sourceBuilder.toString().toLowerCase();
-        for (ContactWhitelistStore.ContactEntry contact : whitelist) {
-            if (contact == null || contact.displayName == null || contact.displayName.trim().isEmpty()) {
+        Log.d(TAG, "Notification source text for whitelist matching: " + source);
+        boolean match = ContactWhitelistStore.matchesSource(this, source);
+        Log.d(TAG, "Whitelist match result: " + match);
+        return match;
+    }
+
+    private boolean matchesResponseCriteria(ResponseConfig response, StatusBarNotification sbn) {
+        boolean keywordMatch = true;
+        if (isKeywordTriggerSelected(response)) {
+            keywordMatch = matchesKeywordTrigger(response, sbn);
+        }
+        boolean voiceMatch = true;
+        if (isVoiceTriggerSelected(response)) {
+            voiceMatch = isSupportedVoiceNotification(sbn);
+        }
+        boolean socialMatch = true;
+        if (isSocialTriggerSelected(response)) {
+            socialMatch = matchesSocialLinkTrigger(sbn);
+        }
+        return keywordMatch && voiceMatch && socialMatch;
+    }
+
+    private boolean matchesExcludedContacts(ResponseConfig response, StatusBarNotification sbn) {
+        if (response.excludedContacts == null || response.excludedContacts.isEmpty()) {
+            return false;
+        }
+        String source = buildNotificationSource(sbn).toLowerCase(Locale.ROOT);
+        for (String excluded : response.excludedContacts) {
+            if (excluded == null) {
                 continue;
             }
-            String candidate = contact.displayName.trim().toLowerCase();
-            if (source.contains(candidate)) {
+            String normalized = excluded.trim();
+            if (normalized.isEmpty()) {
+                continue;
+            }
+            String lower = normalized.toLowerCase(Locale.ROOT);
+            if (source.contains(lower) || source.contains(normalizeKeywordText(lower))) {
                 return true;
             }
         }
         return false;
     }
 
-    private boolean matchesVoiceCriteria(ResponseConfig response, StatusBarNotification sbn) {
-        if (!isVoiceTriggerSelected(response)) {
+    private boolean matchesKeywordTrigger(ResponseConfig response, StatusBarNotification sbn) {
+        if (response.keywords == null || response.keywords.isEmpty()) {
             return false;
         }
-        return isSupportedVoiceNotification(sbn);
+        String source = buildNotificationSource(sbn).toLowerCase(Locale.ROOT);
+        for (String keyword : response.keywords) {
+            if (keyword == null) {
+                continue;
+            }
+            String normalized = keyword.trim();
+            if (normalized.isEmpty()) {
+                continue;
+            }
+            String lower = normalized.toLowerCase(Locale.ROOT);
+            if (source.contains(lower) || source.contains(normalizeKeywordText(lower))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean matchesSocialLinkTrigger(StatusBarNotification sbn) {
+        String source = buildNotificationSource(sbn).toLowerCase(Locale.ROOT);
+        return source.contains("http") || source.contains("www.") || source.contains("instagram")
+                || source.contains("tiktok") || source.contains("snapchat") || source.contains("x.com")
+                || source.contains("twitter") || source.contains("telegram") || source.contains("discord");
+    }
+
+    private boolean isKeywordTriggerSelected(ResponseConfig response) {
+        return response.triggers.stream().anyMatch(trigger ->
+                trigger.equalsIgnoreCase("mots-clés") || trigger.equalsIgnoreCase("keyword") || trigger.equalsIgnoreCase("keywords"));
+    }
+
+    private boolean isSocialTriggerSelected(ResponseConfig response) {
+        return response.triggers.stream().anyMatch(trigger ->
+                trigger.equalsIgnoreCase("liens/réseaux sociaux") || trigger.equalsIgnoreCase("liens")
+                        || trigger.equalsIgnoreCase("réseaux sociaux") || trigger.equalsIgnoreCase("social"));
     }
 
     private boolean isVoiceTriggerSelected(ResponseConfig response) {
@@ -180,6 +279,61 @@ public class MyNotificationListenerService extends NotificationListenerService {
         }
 
         return false;
+    }
+
+    private String buildNotificationSource(StatusBarNotification sbn) {
+        Notification notification = sbn.getNotification();
+        if (notification == null) {
+            return "";
+        }
+
+        Bundle extras = notification.extras;
+        StringBuilder sourceBuilder = new StringBuilder();
+        sourceBuilder.append(stringOf(extras.getCharSequence(Notification.EXTRA_TITLE))).append(" ")
+                .append(stringOf(extras.getCharSequence(Notification.EXTRA_TEXT))).append(" ")
+                .append(stringOf(extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT))).append(" ")
+                .append(stringOf(extras.getCharSequence(Notification.EXTRA_SUB_TEXT))).append(" ")
+                .append(stringOf(extras.getCharSequence(Notification.EXTRA_TITLE_BIG))).append(" ")
+                .append(stringOf(extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)));
+
+        CharSequence[] textLines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES);
+        if (textLines != null) {
+            for (CharSequence line : textLines) {
+                sourceBuilder.append(" ").append(stringOf(line));
+            }
+        }
+
+        for (String key : extras.keySet()) {
+            Object value = extras.get(key);
+            if (value instanceof CharSequence) {
+                sourceBuilder.append(" ").append(stringOf((CharSequence) value));
+            } else if (value instanceof CharSequence[]) {
+                for (CharSequence item : (CharSequence[]) value) {
+                    sourceBuilder.append(" ").append(stringOf(item));
+                }
+            }
+        }
+
+        NotificationCompat.MessagingStyle style = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(notification);
+        if (style != null) {
+            if (style.getUser() != null && style.getUser().getName() != null) {
+                sourceBuilder.append(" ").append(style.getUser().getName());
+            }
+            for (NotificationCompat.MessagingStyle.Message message : style.getMessages()) {
+                if (message.getPerson() != null && message.getPerson().getName() != null) {
+                    sourceBuilder.append(" ").append(message.getPerson().getName());
+                } else if (message.getSender() != null) {
+                    sourceBuilder.append(" ").append(message.getSender());
+                }
+                sourceBuilder.append(" ").append(stringOf(message.getText()));
+            }
+        }
+
+        return sourceBuilder.toString();
+    }
+
+    private String normalizeKeywordText(String value) {
+        return value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "");
     }
 
     private String stringOf(CharSequence cs) {

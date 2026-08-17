@@ -12,13 +12,22 @@ public class ResponseConfig {
     public String text;
     public List<String> allowedApps;
     public List<String> triggers;
+    public List<String> keywords;
+    public List<String> excludedContacts;
     public boolean allApps;
 
     public ResponseConfig(String title, String text, List<String> allowedApps, List<String> triggers, boolean allApps) {
+        this(title, text, allowedApps, triggers, allApps, new ArrayList<>(), new ArrayList<>());
+    }
+
+    public ResponseConfig(String title, String text, List<String> allowedApps, List<String> triggers,
+                         boolean allApps, List<String> keywords, List<String> excludedContacts) {
         this.title = title;
         this.text = text;
         this.allowedApps = allowedApps != null ? allowedApps : new ArrayList<>();
         this.triggers = triggers != null ? triggers : new ArrayList<>();
+        this.keywords = keywords != null ? keywords : new ArrayList<>();
+        this.excludedContacts = excludedContacts != null ? excludedContacts : new ArrayList<>();
         this.allApps = allApps;
     }
 
@@ -29,6 +38,8 @@ public class ResponseConfig {
         object.put("allApps", allApps);
         object.put("allowedApps", new JSONArray(allowedApps));
         object.put("triggers", new JSONArray(triggers));
+        object.put("keywords", new JSONArray(keywords));
+        object.put("excludedContacts", new JSONArray(excludedContacts));
         return object;
     }
 
@@ -50,7 +61,21 @@ public class ResponseConfig {
                 triggers.add(triggerArray.optString(i));
             }
         }
-        return new ResponseConfig(title, text, allowedApps, triggers, allApps);
+        List<String> keywords = new ArrayList<>();
+        JSONArray keywordsArray = object.optJSONArray("keywords");
+        if (keywordsArray != null) {
+            for (int i = 0; i < keywordsArray.length(); i++) {
+                keywords.add(keywordsArray.optString(i));
+            }
+        }
+        List<String> excludedContacts = new ArrayList<>();
+        JSONArray excludedArray = object.optJSONArray("excludedContacts");
+        if (excludedArray != null) {
+            for (int i = 0; i < excludedArray.length(); i++) {
+                excludedContacts.add(excludedArray.optString(i));
+            }
+        }
+        return new ResponseConfig(title, text, allowedApps, triggers, allApps, keywords, excludedContacts);
     }
 
     public static List<ResponseConfig> listFromJson(String json) {

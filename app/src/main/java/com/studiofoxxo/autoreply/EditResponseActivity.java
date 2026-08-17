@@ -1,10 +1,13 @@
 package com.studiofoxxo.autoreply;
 
+import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.os.Bundle;
+import android.provider.ContactsContract;
 import android.text.TextUtils;
 import android.widget.Toast;
 
@@ -49,10 +52,13 @@ public class EditResponseActivity extends AppCompatActivity {
         binding.responseText.setText(response.text);
         binding.responseApps.setText(response.allApps ? "Toutes les applications" : formatAppLabels(response.allowedApps));
         binding.responseTriggers.setText(response.triggers.isEmpty() ? "Aucun critère" : TextUtils.join(", ", response.triggers));
+        binding.responseKeywords.setText(TextUtils.join(", ", response.keywords));
+        binding.responseExcludedContacts.setText(TextUtils.join(", ", response.excludedContacts));
 
         binding.saveButton.setOnClickListener(v -> saveResponse());
         binding.selectAppsButton.setOnClickListener(v -> selectApps());
         binding.selectTriggersButton.setOnClickListener(v -> selectTriggers());
+        binding.selectExcludedContactsButton.setOnClickListener(v -> selectExcludedContacts());
     }
 
     private void saveResponse() {
@@ -64,6 +70,12 @@ public class EditResponseActivity extends AppCompatActivity {
         }
         response.title = title;
         response.text = text;
+        response.keywords = parseList(binding.responseKeywords.getText().toString());
+        response.excludedContacts = parseList(binding.responseExcludedContacts.getText().toString());
+        if (isKeywordTriggerSelected(response) && response.keywords.isEmpty()) {
+            Toast.makeText(this, "Définissez au moins un mot-clé ou une phrase clé pour ce déclenchement", Toast.LENGTH_SHORT).show();
+            return;
+        }
         if (isVoiceTriggerSelected(response) && response.allowedApps.isEmpty()) {
             Toast.makeText(this, "Pour les vocaux, choisissez au moins une application", Toast.LENGTH_SHORT).show();
             return;
@@ -72,9 +84,29 @@ public class EditResponseActivity extends AppCompatActivity {
         finish();
     }
 
+    private boolean isKeywordTriggerSelected(ResponseConfig response) {
+        return response.triggers.stream().anyMatch(trigger ->
+                trigger.equalsIgnoreCase("mots-clés") || trigger.equalsIgnoreCase("keyword") || trigger.equalsIgnoreCase("keywords"));
+    }
+
     private boolean isVoiceTriggerSelected(ResponseConfig response) {
         return response.triggers.stream().anyMatch(trigger ->
                 trigger.equalsIgnoreCase("vocaux") || trigger.equalsIgnoreCase("voice") || trigger.equalsIgnoreCase("audio"));
+    }
+
+    private List<String> parseList(String raw) {
+        List<String> values = new ArrayList<>();
+        if (TextUtils.isEmpty(raw)) {
+            return values;
+        }
+        String[] items = raw.split("[,;\n]+");
+        for (String item : items) {
+            String clean = item.trim();
+            if (!clean.isEmpty()) {
+                values.add(clean);
+            }
+        }
+        return values;
     }
 
     private void saveResponseConfig(ResponseConfig response) {
@@ -172,6 +204,74 @@ public class EditResponseActivity extends AppCompatActivity {
                 })
                 .setNegativeButton("Annuler", null)
                 .show();
+    }
+
+    private void selectExcludedContacts() {
+        if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "Autorise l’accès aux contacts pour sélectionner des exclusions.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        List<String> candidateNames = loadContactNames();
+        if (candidateNames.isEmpty()) {
+            Toast.makeText(this, "Aucun contact trouvé sur l’appareil.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        List<String> selectedValues = parseList(binding.responseExcludedContacts.getText().toString());
+        boolean[] checked = new boolean[candidateNames.size()];
+        for (int i = 0; i < candidateNames.size(); i++) {
+            checked[i] = selectedValues.contains(candidateNames.get(i));
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Contacts à exclure")
+                .setMultiChoiceItems(candidateNames.toArray(new String[0]), checked, (dialog, which, isChecked) -> {
+                    checked[which] = isChecked;
+                })
+                .setPositiveButton("OK", (dialog, which) -> {
+                    List<String> chosen = new ArrayList<>();
+                    for (int i = 0; i < candidateNames.size(); i++) {
+                        if (checked[i]) {
+                            chosen.add(candidateNames.get(i));
+                        }
+                    }
+                    response.excludedContacts = chosen;
+                    binding.responseExcludedContacts.setText(TextUtils.join(", ", chosen));
+                })
+                .setNegativeButton("Annuler", null)
+                .show();
+    }
+
+    private List<String> loadContactNames() {
+        List<String> names = new ArrayList<>();
+        String[] projection = {ContactsContract.Contacts.DISPLAY_NAME_PRIMARY};
+        try (Cursor cursor = getContentResolver().query(
+                ContactsContract.Contacts.CONTENT_URI,
+                projection,
+                ContactsContract.Contacts.HAS_PHONE_NUMBER + " > 0 OR " + ContactsContract.Contacts.IN_VISIBLE_GROUP + " = 1",
+                null,
+                ContactsContract.Contacts.DISPLAY_NAME_PRIMARY + " ASC")) {
+            if (cursor != null) {
+                int nameIndex = cursor.getColumnIndexOrThrow(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY);
+                while (cursor.moveToNext()) {
+                    String name = cursor.getString(nameIndex);
+                    if (!TextUtils.isEmpty(name)) {
+                        names.add(name.trim());
+                    }
+                }
+            }
+        }
+
+        for (ContactWhitelistStore.ContactEntry entry : ContactWhitelistStore.getContacts(this)) {
+            String name = entry.displayName != null ? entry.displayName.trim() : "";
+            if (!TextUtils.isEmpty(name) && !names.contains(name)) {
+                names.add(name);
+            }
+        }
+
+        java.util.Collections.sort(names, String.CASE_INSENSITIVE_ORDER);
+        return names;
     }
 
     private String formatAppLabels(List<String> packageNames) {

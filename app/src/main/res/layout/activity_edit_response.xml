@@ -55,6 +55,31 @@
             android:text="Aucun critère"
             android:textAppearance="?attr/textAppearanceBody2" />
 
+        <EditText
+            android:id="@+id/response_keywords"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:hint="Mots-clés ou phrases clés (séparés par virgule)"
+            android:inputType="textMultiLine"
+            android:minLines="2" />
+
+        <Button
+            android:id="@+id/select_excluded_contacts_button"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Sélectionner les contacts exclus" />
+
+        <EditText
+            android:id="@+id/response_excluded_contacts"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:hint="Contacts à exclure (noms ou pseudos, séparés par virgule)"
+            android:inputType="textMultiLine"
+            android:minLines="2" />
+
         <Button
             android:id="@+id/save_button"
             android:layout_width="match_parent"

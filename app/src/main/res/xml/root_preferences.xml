@@ -62,14 +62,19 @@
 
         <Preference
             android:key="exclude_contacts"
-            android:title="Whitelist d'utilisateurs"
-            android:summary="Ajouter un contact autorisé"
+            android:title="Ajouter un contact Android"
+            android:summary="Sélectionner un contact depuis votre carnet"
             android:selectable="true" />
+
+        <Preference
+            android:key="add_manual_whitelist"
+            android:title="Ajouter un contact Discord / manuel"
+            android:summary="Ajouter un pseudo ou nom d'utilisateur à la whitelist" />
 
         <Preference
             android:key="clear_contact_whitelist"
             android:title="Effacer la whitelist"
-            android:summary="Supprimer tous les contacts autorisés" />
+            android:summary="Supprimer tous les contacts et entrées manuelles autorisés" />
     </PreferenceScreen>
 
     <PreferenceCategory android:title="Applications supportées">

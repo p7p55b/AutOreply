@@ -10,12 +10,16 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.provider.ContactsContract;
 import android.provider.Settings;
+import android.text.InputType;
+import android.util.Log;
+import android.widget.EditText;
 import android.widget.Toast;
 
 import java.util.List;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
@@ -95,6 +99,14 @@ public class SettingsActivity extends AppCompatActivity implements PreferenceFra
                 });
             }
 
+            Preference manualWhitelistPref = findPreference("add_manual_whitelist");
+            if (manualWhitelistPref != null) {
+                manualWhitelistPref.setOnPreferenceClickListener(preference -> {
+                    showAddManualWhitelistDialog();
+                    return true;
+                });
+            }
+
             Preference clearContactWhitelistPref = findPreference("clear_contact_whitelist");
             if (clearContactWhitelistPref != null) {
                 clearContactWhitelistPref.setOnPreferenceClickListener(preference -> {
@@ -143,16 +155,39 @@ public class SettingsActivity extends AppCompatActivity implements PreferenceFra
             };
             try (Cursor cursor = requireContext().getContentResolver().query(contactUri, projection, null, null, null)) {
                 if (cursor != null && cursor.moveToFirst()) {
+                    String contactId = cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.Contacts._ID));
                     String lookupKey = cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.Contacts.LOOKUP_KEY));
                     String displayName = cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY));
                     if (displayName == null) {
                         displayName = "Contact inconnu";
                     }
                     ContactWhitelistStore.addOrUpdateContact(requireContext(),
-                            new ContactWhitelistStore.ContactEntry(lookupKey, displayName));
+                            new ContactWhitelistStore.ContactEntry(contactId, lookupKey, displayName));
+                    Log.d("SettingsActivity", "Added whitelist contact: " + displayName + " id=" + contactId + " lookup=" + lookupKey);
                     Toast.makeText(requireContext(), "Contact ajouté à la whitelist", Toast.LENGTH_SHORT).show();
                 }
             }
+        }
+
+        private void showAddManualWhitelistDialog() {
+            EditText input = new EditText(requireContext());
+            input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS);
+
+            new AlertDialog.Builder(requireContext())
+                    .setTitle("Ajouter un contact Discord / manuel")
+                    .setMessage("Entrez le nom ou pseudo d'un expéditeur autorisé")
+                    .setView(input)
+                    .setPositiveButton("Ajouter", (dialog, which) -> {
+                        String value = input.getText().toString().trim();
+                        if (!value.isEmpty()) {
+                            ContactWhitelistStore.addOrUpdateContact(requireContext(),
+                                    new ContactWhitelistStore.ContactEntry("", "", value));
+                            Log.d("SettingsActivity", "Added manual whitelist entry: " + value);
+                            Toast.makeText(requireContext(), "Entrée Discord ajoutée à la whitelist", Toast.LENGTH_SHORT).show();
+                        }
+                    })
+                    .setNegativeButton("Annuler", null)
+                    .show();
         }
 
         private boolean isNotificationAccessGranted() {
