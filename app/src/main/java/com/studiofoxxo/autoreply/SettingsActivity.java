@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
@@ -15,8 +16,6 @@ import android.util.Log;
 import android.widget.EditText;
 import android.widget.Toast;
 
-import java.util.List;
-
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AlertDialog;
@@ -25,18 +24,28 @@ import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceFragmentCompat;
+import androidx.preference.PreferenceManager;
 import androidx.preference.PreferenceScreen;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
 public class SettingsActivity extends AppCompatActivity implements PreferenceFragmentCompat.OnPreferenceStartScreenCallback {
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_settings);
 
-        getSupportFragmentManager()
-            .beginTransaction()
-            .replace(R.id.settings_container, new SettingsFragment())
-            .commit();
+        if (savedInstanceState == null) {
+            getSupportFragmentManager()
+                    .beginTransaction()
+                    .replace(R.id.settings_container, new SettingsFragment())
+                    .commit();
+        }
     }
 
     @Override
@@ -47,24 +56,40 @@ public class SettingsActivity extends AppCompatActivity implements PreferenceFra
         fragment.setArguments(args);
 
         getSupportFragmentManager()
-            .beginTransaction()
-            .replace(R.id.settings_container, fragment)
-            .addToBackStack(preferenceScreen.getKey())
-            .commit();
+                .beginTransaction()
+                .replace(R.id.settings_container, fragment)
+                .addToBackStack(preferenceScreen.getKey())
+                .commit();
         return true;
     }
 
     public static class SettingsFragment extends PreferenceFragmentCompat {
+        private ActivityResultLauncher<String> requestContactsPermissionLauncher;
+        private ActivityResultLauncher<Intent> pickContactLauncher;
+
+        @Override
+        public void onCreate(Bundle savedInstanceState) {
+            super.onCreate(savedInstanceState);
+            registerLaunchers();
+        }
+
         @Override
         public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
             setPreferencesFromResource(R.xml.root_preferences, rootKey);
-            registerLaunchers();
+            setupPreferences();
+        }
 
+        @Override
+        public void onResume() {
+            super.onResume();
+            updateNotificationPermissionSummary();
+            updateWhitelistSummary();
+            updateExcludedAppsSummary();
+        }
+
+        private void setupPreferences() {
             Preference verifyPref = findPreference("verify_notification_permission");
             if (verifyPref != null) {
-                verifyPref.setSummary(isNotificationAccessGranted()
-                    ? "Autorisation accordée"
-                    : "Autorisation manquante");
                 verifyPref.setOnPreferenceClickListener(preference -> {
                     Intent intent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
                     startActivity(intent);
@@ -79,8 +104,17 @@ public class SettingsActivity extends AppCompatActivity implements PreferenceFra
                     int count = SupportedAppStore.detectSupportedApps(requireContext()).size();
                     updateDetectAppsSummary(detectAppsPref);
                     Toast.makeText(requireContext(),
-                            count > 0 ? count + " applications supportées détectées" : "Aucune application supportée détectée",
+                            count > 0 ? count + " application(s) supportée(s) détectée(s)" : "Aucune application supportée détectée",
                             Toast.LENGTH_SHORT).show();
+                    return true;
+                });
+            }
+
+            Preference excludeAppsPref = findPreference("exclude_apps");
+            if (excludeAppsPref != null) {
+                updateExcludedAppsSummary();
+                excludeAppsPref.setOnPreferenceClickListener(preference -> {
+                    showExcludeAppsDialog();
                     return true;
                 });
             }
@@ -110,15 +144,103 @@ public class SettingsActivity extends AppCompatActivity implements PreferenceFra
             Preference clearContactWhitelistPref = findPreference("clear_contact_whitelist");
             if (clearContactWhitelistPref != null) {
                 clearContactWhitelistPref.setOnPreferenceClickListener(preference -> {
-                    ContactWhitelistStore.clearContacts(requireContext());
-                    Toast.makeText(requireContext(), "Whitelist de contacts vidée", Toast.LENGTH_SHORT).show();
+                    new AlertDialog.Builder(requireContext())
+                            .setTitle("Effacer la whitelist")
+                            .setMessage("Voulez-vous supprimer tous les contacts de la whitelist ? Si la whitelist est vide, l'application répondra à tous les expéditeurs autorisés par les règles.")
+                            .setPositiveButton("Effacer", (dialog, which) -> {
+                                ContactWhitelistStore.clearContacts(requireContext());
+                                updateWhitelistSummary();
+                                Toast.makeText(requireContext(), "Whitelist de contacts vidée", Toast.LENGTH_SHORT).show();
+                            })
+                            .setNegativeButton("Annuler", null)
+                            .show();
+                    return true;
+                });
+            }
+
+            // Criteria explanation helpers
+            Preference criteriaKeywords = findPreference("criteria_keywords");
+            if (criteriaKeywords != null) {
+                criteriaKeywords.setOnPreferenceClickListener(pref -> {
+                    showInfoDialog("Mots-clés", "Les mots-clés et expressions sont configurés directement dans chaque règle de réponse (depuis l'écran principal). Le déclenchement s'active dès que le message contient l'un des mots-clés définis.");
+                    return true;
+                });
+            }
+
+            Preference criteriaLinks = findPreference("criteria_links");
+            if (criteriaLinks != null) {
+                criteriaLinks.setOnPreferenceClickListener(pref -> {
+                    showInfoDialog("Liens / Réseaux sociaux", "Ce critère détecte automatiquement les liens URL (http, https, www) et les partages réseaux sociaux (Instagram, TikTok, Snapchat, Twitter/X, Telegram, Discord, YouTube).");
+                    return true;
+                });
+            }
+
+            Preference criteriaVoice = findPreference("criteria_voice");
+            if (criteriaVoice != null) {
+                criteriaVoice.setOnPreferenceClickListener(pref -> {
+                    showInfoDialog("Messages vocaux", "Ce critère détecte les messages vocaux et notes audio reçus sur WhatsApp, Telegram, Discord et Google Messages.");
                     return true;
                 });
             }
         }
 
-        private ActivityResultLauncher<String> requestContactsPermissionLauncher;
-        private ActivityResultLauncher<Intent> pickContactLauncher;
+        private void showInfoDialog(String title, String message) {
+            new AlertDialog.Builder(requireContext())
+                    .setTitle(title)
+                    .setMessage(message)
+                    .setPositiveButton("Compris", null)
+                    .show();
+        }
+
+        private void showExcludeAppsDialog() {
+            List<String> packages = SupportedAppStore.getAllKnownSupportedPackages();
+            List<String> labels = new ArrayList<>();
+            for (String pkg : packages) {
+                labels.add(SupportedAppStore.getDefaultLabel(pkg));
+            }
+
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(requireContext());
+            Set<String> currentlyExcluded = prefs.getStringSet("excluded_apps", Collections.emptySet());
+            boolean[] checked = new boolean[packages.size()];
+            for (int i = 0; i < packages.size(); i++) {
+                checked[i] = currentlyExcluded != null && currentlyExcluded.contains(packages.get(i));
+            }
+
+            new AlertDialog.Builder(requireContext())
+                    .setTitle("Applications exclues")
+                    .setMultiChoiceItems(labels.toArray(new String[0]), checked, (dialog, which, isChecked) -> checked[which] = isChecked)
+                    .setPositiveButton("Enregistrer", (dialog, which) -> {
+                        Set<String> newExcluded = new HashSet<>();
+                        for (int i = 0; i < packages.size(); i++) {
+                            if (checked[i]) {
+                                newExcluded.add(packages.get(i));
+                            }
+                        }
+                        prefs.edit().putStringSet("excluded_apps", newExcluded).apply();
+                        updateExcludedAppsSummary();
+                    })
+                    .setNegativeButton("Annuler", null)
+                    .show();
+        }
+
+        private void updateExcludedAppsSummary() {
+            Preference excludeAppsPref = findPreference("exclude_apps");
+            if (excludeAppsPref == null) return;
+            Context context = getContext();
+            if (context == null) return;
+
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+            Set<String> excluded = prefs.getStringSet("excluded_apps", Collections.emptySet());
+            if (excluded == null || excluded.isEmpty()) {
+                excludeAppsPref.setSummary("Aucune application exclue");
+            } else {
+                List<String> names = new ArrayList<>();
+                for (String pkg : excluded) {
+                    names.add(SupportedAppStore.getDefaultLabel(pkg));
+                }
+                excludeAppsPref.setSummary("Exclues : " + String.join(", ", names));
+            }
+        }
 
         private void registerLaunchers() {
             requestContactsPermissionLauncher = registerForActivityResult(
@@ -147,7 +269,6 @@ public class SettingsActivity extends AppCompatActivity implements PreferenceFra
             if (contactUri == null) {
                 return;
             }
-
             String[] projection = {
                     ContactsContract.Contacts._ID,
                     ContactsContract.Contacts.LOOKUP_KEY,
@@ -155,49 +276,78 @@ public class SettingsActivity extends AppCompatActivity implements PreferenceFra
             };
             try (Cursor cursor = requireContext().getContentResolver().query(contactUri, projection, null, null, null)) {
                 if (cursor != null && cursor.moveToFirst()) {
-                    String contactId = cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.Contacts._ID));
-                    String lookupKey = cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.Contacts.LOOKUP_KEY));
-                    String displayName = cursor.getString(cursor.getColumnIndexOrThrow(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY));
+                    int idCol = cursor.getColumnIndex(ContactsContract.Contacts._ID);
+                    int lookupCol = cursor.getColumnIndex(ContactsContract.Contacts.LOOKUP_KEY);
+                    int nameCol = cursor.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY);
+
+                    String contactId = idCol >= 0 ? cursor.getString(idCol) : "";
+                    String lookupKey = lookupCol >= 0 ? cursor.getString(lookupCol) : "";
+                    String displayName = nameCol >= 0 ? cursor.getString(nameCol) : "Contact inconnu";
                     if (displayName == null) {
                         displayName = "Contact inconnu";
                     }
+
                     ContactWhitelistStore.addOrUpdateContact(requireContext(),
                             new ContactWhitelistStore.ContactEntry(contactId, lookupKey, displayName));
-                    Log.d("SettingsActivity", "Added whitelist contact: " + displayName + " id=" + contactId + " lookup=" + lookupKey);
-                    Toast.makeText(requireContext(), "Contact ajouté à la whitelist", Toast.LENGTH_SHORT).show();
+                    updateWhitelistSummary();
+                    Toast.makeText(requireContext(), "Contact ajouté à la whitelist : " + displayName, Toast.LENGTH_SHORT).show();
                 }
+            } catch (Exception e) {
+                Log.e("SettingsActivity", "Error handling picked contact", e);
+                Toast.makeText(requireContext(), "Impossible de charger le contact", Toast.LENGTH_SHORT).show();
             }
         }
 
         private void showAddManualWhitelistDialog() {
             EditText input = new EditText(requireContext());
             input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS);
+            input.setHint("Ex: John, PseudoDiscord, etc.");
 
             new AlertDialog.Builder(requireContext())
-                    .setTitle("Ajouter un contact Discord / manuel")
-                    .setMessage("Entrez le nom ou pseudo d'un expéditeur autorisé")
+                    .setTitle("Ajouter un contact manuel / Discord")
+                    .setMessage("Entrez le nom ou pseudo de l'expéditeur autorisé")
                     .setView(input)
                     .setPositiveButton("Ajouter", (dialog, which) -> {
                         String value = input.getText().toString().trim();
                         if (!value.isEmpty()) {
                             ContactWhitelistStore.addOrUpdateContact(requireContext(),
                                     new ContactWhitelistStore.ContactEntry("", "", value));
-                            Log.d("SettingsActivity", "Added manual whitelist entry: " + value);
-                            Toast.makeText(requireContext(), "Entrée Discord ajoutée à la whitelist", Toast.LENGTH_SHORT).show();
+                            updateWhitelistSummary();
+                            Toast.makeText(requireContext(), "Entrée ajoutée à la whitelist : " + value, Toast.LENGTH_SHORT).show();
                         }
                     })
                     .setNegativeButton("Annuler", null)
                     .show();
         }
 
+        private void updateWhitelistSummary() {
+            Preference whitelistUsersPref = findPreference("exclude_contacts");
+            if (whitelistUsersPref != null && getContext() != null) {
+                whitelistUsersPref.setSummary(ContactWhitelistStore.getWhitelistSummary(requireContext()));
+            }
+        }
+
+        private void updateNotificationPermissionSummary() {
+            Preference verifyPref = findPreference("verify_notification_permission");
+            if (verifyPref != null && getContext() != null) {
+                boolean granted = isNotificationAccessGranted();
+                verifyPref.setSummary(granted
+                        ? "Autorisation accordée (le service d'auto-réponse est actif)"
+                        : "Autorisation manquante (cliquez pour accorder l'accès aux notifications)");
+            }
+        }
+
         private boolean isNotificationAccessGranted() {
-            Context context = requireContext();
+            Context context = getContext();
+            if (context == null) return false;
             return NotificationManagerCompat.getEnabledListenerPackages(context)
-                .contains(context.getPackageName());
+                    .contains(context.getPackageName());
         }
 
         private void updateDetectAppsSummary(Preference preference) {
-            List<String> supported = SupportedAppStore.getPersistedSupportedApps(requireContext());
+            Context context = getContext();
+            if (context == null) return;
+            List<String> supported = SupportedAppStore.getPersistedSupportedApps(context);
             if (supported.isEmpty()) {
                 preference.setSummary("Aucune application supportée détectée");
             } else {
@@ -208,7 +358,7 @@ public class SettingsActivity extends AppCompatActivity implements PreferenceFra
                     }
                     labels.append(SupportedAppStore.getDefaultLabel(supported.get(i)));
                 }
-                preference.setSummary("Détecté : " + labels.toString());
+                preference.setSummary("Détecté : " + labels);
             }
         }
     }

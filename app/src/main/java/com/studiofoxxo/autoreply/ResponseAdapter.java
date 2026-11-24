@@ -1,7 +1,6 @@
 package com.studiofoxxo.autoreply;
 
 import android.view.LayoutInflater;
-import android.view.View;
 import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
@@ -14,16 +13,17 @@ import java.util.List;
 public class ResponseAdapter extends RecyclerView.Adapter<ResponseAdapter.ViewHolder> {
 
     public interface OnResponseClickListener {
-        void onClick(ResponseConfig response);
+        void onClick(ResponseConfig response, int position);
     }
 
     public interface OnResponseDeleteListener {
-        void onDelete(ResponseConfig response);
+        void onDelete(ResponseConfig response, int position);
     }
 
     private final List<ResponseConfig> responses;
     private final OnResponseClickListener listener;
     private final OnResponseDeleteListener deleteListener;
+
     public ResponseAdapter(List<ResponseConfig> responses, OnResponseClickListener listener, OnResponseDeleteListener deleteListener) {
         this.responses = responses;
         this.listener = listener;
@@ -43,24 +43,25 @@ public class ResponseAdapter extends RecyclerView.Adapter<ResponseAdapter.ViewHo
         holder.binding.responseTitle.setText(response.title);
         holder.binding.responseSummary.setText(response.text);
         holder.binding.responseInfo.setText(buildInfo(response));
-        holder.binding.getRoot().setOnClickListener(v -> listener.onClick(response));
-        holder.binding.deleteButton.setOnClickListener(v -> {
-            if (deleteListener != null) deleteListener.onDelete(response);
+
+        holder.binding.getRoot().setOnClickListener(v -> {
+            int pos = holder.getAdapterPosition();
+            if (pos != RecyclerView.NO_POSITION && listener != null && pos < responses.size()) {
+                listener.onClick(responses.get(pos), pos);
+            }
         });
 
-        // Make tile roughly square: set height equal to measured width
-        holder.binding.getRoot().post(() -> {
-            int w = holder.binding.getRoot().getWidth();
-            if (w > 0 && holder.binding.getRoot().getHeight() != w) {
-                holder.binding.getRoot().getLayoutParams().height = w;
-                holder.binding.getRoot().requestLayout();
+        holder.binding.deleteButton.setOnClickListener(v -> {
+            int pos = holder.getAdapterPosition();
+            if (pos != RecyclerView.NO_POSITION && deleteListener != null && pos < responses.size()) {
+                deleteListener.onDelete(responses.get(pos), pos);
             }
         });
     }
 
     @Override
     public int getItemCount() {
-        return responses.size();
+        return responses != null ? responses.size() : 0;
     }
 
     private String buildInfo(ResponseConfig response) {
@@ -73,10 +74,13 @@ public class ResponseAdapter extends RecyclerView.Adapter<ResponseAdapter.ViewHo
                 if (i > 0) sb.append(", ");
                 sb.append(SupportedAppStore.getDefaultLabel(response.allowedApps.get(i)));
             }
-            apps = sb.toString();
+            apps = sb.length() > 0 ? sb.toString() : "Aucune app";
         }
 
-        String triggers = response.triggers.isEmpty() ? "Aucun critère" : String.join(", ", response.triggers);
+        String triggers = (response.triggers == null || response.triggers.isEmpty())
+                ? "Aucun (par défaut)"
+                : String.join(", ", response.triggers);
+
         return "Apps : " + apps + " · Critères : " + triggers;
     }
 

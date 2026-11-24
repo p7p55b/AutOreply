@@ -1,87 +1,66 @@
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <PreferenceCategory android:title="Réponses automatiques">
+    <PreferenceCategory android:title="État du service">
         <SwitchPreferenceCompat
             android:key="auto_reply_enabled"
             android:title="Activer la réponse automatique"
             android:summary="Activer ou désactiver l'envoi automatique de réponses"
-            android:defaultValue="false" />
-
-        <PreferenceScreen
-            android:key="responses_screen"
-            android:title="Messages de réponse"
-            android:summary="Configurer les textes de réponse">
-
-            <EditTextPreference
-                android:key="default_response"
-                android:title="Message de réponse par défaut"
-                android:summary="Texte envoyé si aucun autre critère n'est trouvé"
-                android:dialogTitle="Saisir le message de réponse"
-                android:defaultValue="Je suis occupé, je vous répondrai bientôt." />
-
-            <ListPreference
-                android:key="reply_format"
-                android:title="Format de réponse"
-                android:entries="@array/reply_format_entries"
-                android:entryValues="@array/reply_format_values"
-                android:defaultValue="text"
-                android:summary="%s" />
-        </PreferenceScreen>
+            android:defaultValue="true" />
     </PreferenceCategory>
 
     <PreferenceScreen
         android:key="criteria_screen"
         android:title="Critères de réponse"
-        android:summary="Mots, phrases et types de notifications">
+        android:summary="Informations sur les filtres par mot-clé, lien et vocal">
 
         <Preference
             android:key="criteria_keywords"
             android:title="Mots-clés et expressions"
-            android:summary="Gérer les mots ou phrases déclencheurs" />
+            android:summary="Déclencher selon des mots ou phrases clés (configuré par règle)" />
 
         <Preference
             android:key="criteria_links"
             android:title="Liens / réseaux sociaux"
-            android:summary="Gérer les patterns de liens et de réseaux sociaux" />
+            android:summary="Déclencher sur liens http, Instagram, TikTok, Snapchat, etc." />
 
         <Preference
             android:key="criteria_voice"
-            android:title="Message vocal"
-            android:summary="Configurer la détection de message vocal" />
+            android:title="Messages vocaux"
+            android:summary="Déclencher sur les notes audio et vocaux reçus" />
     </PreferenceScreen>
 
     <PreferenceScreen
         android:key="exclusions_screen"
-        android:title="Exclusions"
-        android:summary="Applications et contacts à ignorer">
+        android:title="Contacts autorisés &amp; Exclusions"
+        android:summary="Gérer la whitelist et les applications exclues">
 
         <Preference
             android:key="exclude_apps"
             android:title="Applications exclues"
-            android:summary="Sélectionner les applications à ignorer" />
+            android:summary="Sélectionner les applications à toujours ignorer" />
 
         <Preference
             android:key="exclude_contacts"
-            android:title="Ajouter un contact Android"
+            android:title="Ajouter un contact Android à la whitelist"
             android:summary="Sélectionner un contact depuis votre carnet"
             android:selectable="true" />
 
         <Preference
             android:key="add_manual_whitelist"
-            android:title="Ajouter un contact Discord / manuel"
-            android:summary="Ajouter un pseudo ou nom d'utilisateur à la whitelist" />
+            android:title="Ajouter un contact Discord / manuel à la whitelist"
+            android:summary="Ajouter un pseudo ou nom d'expéditeur autorisé" />
 
         <Preference
             android:key="clear_contact_whitelist"
-            android:title="Effacer la whitelist"
-            android:summary="Supprimer tous les contacts et entrées manuelles autorisés" />
+            android:title="Effacer la whitelist de contacts"
+            android:summary="Supprimer tous les contacts autorisés (répondre à tous)" />
     </PreferenceScreen>
 
     <PreferenceCategory android:title="Applications supportées">
         <Preference
             android:key="detect_supported_apps"
             android:title="Détecter les applications supportées"
-            android:summary="Détecter Google Messages, Discord et Telegram" />
+            android:summary="Détecter Google Messages, WhatsApp, Signal, Discord, Telegram" />
     </PreferenceCategory>
 
     <PreferenceCategory android:title="Permissions">

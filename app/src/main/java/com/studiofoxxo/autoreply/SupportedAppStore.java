@@ -6,8 +6,7 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -15,9 +14,12 @@ public class SupportedAppStore {
     private static final String PREFS_NAME = "autoreply_prefs";
     private static final String KEY_SUPPORTED_APPS = "supported_apps";
 
-    private static final Map<String, String> KNOWN_SUPPORTED_APPS = new HashMap<>();
+    private static final Map<String, String> KNOWN_SUPPORTED_APPS = new LinkedHashMap<>();
     static {
         KNOWN_SUPPORTED_APPS.put("com.google.android.apps.messaging", "Google Messages");
+        KNOWN_SUPPORTED_APPS.put("com.whatsapp", "WhatsApp");
+        KNOWN_SUPPORTED_APPS.put("com.whatsapp.w4b", "WhatsApp Business");
+        KNOWN_SUPPORTED_APPS.put("org.thoughtcrime.securesms", "Signal");
         KNOWN_SUPPORTED_APPS.put("com.discord", "Discord");
         KNOWN_SUPPORTED_APPS.put("com.discord.beta", "Discord Beta");
         KNOWN_SUPPORTED_APPS.put("org.telegram.messenger", "Telegram");
@@ -52,7 +54,10 @@ public class SupportedAppStore {
         try {
             org.json.JSONArray array = new org.json.JSONArray(raw);
             for (int i = 0; i < array.length(); i++) {
-                packages.add(array.optString(i));
+                String pkg = array.optString(i, "").trim();
+                if (!pkg.isEmpty()) {
+                    packages.add(pkg);
+                }
             }
         } catch (org.json.JSONException ignored) {
         }

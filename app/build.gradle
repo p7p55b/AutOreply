@@ -28,11 +28,20 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_11
-        targetCompatibility JavaVersion.VERSION_11
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
     buildFeatures {
         viewBinding true
+    }
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
     }
 }
 
@@ -45,6 +54,7 @@ dependencies {
     implementation "androidx.preference:preference:1.2.1"
     implementation libs.navigation.ui
     testImplementation libs.junit
+    testImplementation "org.json:json:20240303"
     androidTestImplementation libs.espresso.core
     androidTestImplementation libs.ext.junit
 }

@@ -5,6 +5,9 @@
 
     <queries>
         <package android:name="com.google.android.apps.messaging" />
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+        <package android:name="org.thoughtcrime.securesms" />
         <package android:name="com.discord" />
         <package android:name="com.discord.beta" />
         <package android:name="org.telegram.messenger" />

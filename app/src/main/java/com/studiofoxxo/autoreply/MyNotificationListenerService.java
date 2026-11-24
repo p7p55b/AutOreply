@@ -5,51 +5,125 @@ import android.app.PendingIntent;
 import android.app.RemoteInput;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
+import android.text.TextUtils;
 import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
+import androidx.preference.PreferenceManager;
 
+import java.text.Normalizer;
+import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 public class MyNotificationListenerService extends NotificationListenerService {
     private static final String TAG = "MyNotificationListener";
-    private final Set<String> handledNotificationKeys = Collections.synchronizedSet(new HashSet<>());
+
+    // Bounded LRU cache (max 200 entries) to prevent memory leak and double-processing
+    private final Set<String> handledNotificationKeys = Collections.newSetFromMap(
+            new LinkedHashMap<String, Boolean>(200, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
+                    return size() > 200;
+                }
+            }
+    );
+
+    // Cooldown tracker per sender/package to prevent rapid duplicate auto-replies (min 3s cooldown)
+    private final Map<String, Long> lastReplyTimestamps = Collections.synchronizedMap(
+            new LinkedHashMap<String, Long>(100, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, Long> eldest) {
+                    return size() > 100;
+                }
+            }
+    );
+
+    private static final long COOLDOWN_MILLIS = 3000L;
 
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
         super.onNotificationPosted(sbn);
+        if (sbn == null) {
+            return;
+        }
+
         Notification notification = sbn.getNotification();
         if (notification == null) {
             return;
         }
 
-        Log.d(TAG, "Notification posted: package=" + sbn.getPackageName());
-        Log.d(TAG, "  title=" + stringOf(notification.extras.getCharSequence(Notification.EXTRA_TITLE)));
-        Log.d(TAG, "  text=" + stringOf(notification.extras.getCharSequence(Notification.EXTRA_TEXT)));
-        Log.d(TAG, "  summary=" + stringOf(notification.extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT)));
-
-        String key = sbn.getKey();
-        if (key != null && handledNotificationKeys.contains(key)) {
-            Log.d(TAG, "Notification already handled: " + key);
+        String packageName = sbn.getPackageName();
+        if (packageName == null || packageName.equals(getPackageName())) {
+            // Ignore own notifications
             return;
         }
 
+        // Check global auto_reply_enabled switch
+        SharedPreferences defaultPrefs = PreferenceManager.getDefaultSharedPreferences(this);
+        if (!defaultPrefs.getBoolean("auto_reply_enabled", true)) {
+            Log.d(TAG, "Auto-reply is disabled in preferences");
+            return;
+        }
+
+        // Check globally excluded apps
+        Set<String> excludedApps = defaultPrefs.getStringSet("excluded_apps", Collections.emptySet());
+        if (excludedApps != null && excludedApps.contains(packageName)) {
+            Log.d(TAG, "Package is globally excluded: " + packageName);
+            return;
+        }
+
+        // Ignore ongoing events (music playback, calls, download progress)
+        if ((notification.flags & Notification.FLAG_ONGOING_EVENT) != 0) {
+            return;
+        }
+
+        // Ignore group summaries to avoid duplicate replies when bundled
+        if ((notification.flags & Notification.FLAG_GROUP_SUMMARY) != 0) {
+            return;
+        }
+
+        String dedupeKey = sbn.getKey() + "_" + sbn.getPostTime();
+        synchronized (handledNotificationKeys) {
+            if (handledNotificationKeys.contains(dedupeKey)) {
+                Log.d(TAG, "Notification already handled: " + dedupeKey);
+                return;
+            }
+        }
+
+        // Check sender whitelist
         if (!matchesUserWhitelist(sbn)) {
             Log.d(TAG, "Notification skipped because sender is not whitelisted");
             return;
         }
 
         List<ResponseConfig> responses = loadResponses();
+        if (responses.isEmpty()) {
+            return;
+        }
+
+        String senderKey = packageName + ":" + extractSenderName(sbn);
+        long now = System.currentTimeMillis();
+        Long lastReply = lastReplyTimestamps.get(senderKey);
+        if (lastReply != null && (now - lastReply) < COOLDOWN_MILLIS) {
+            Log.d(TAG, "Skipping reply due to cooldown for: " + senderKey);
+            return;
+        }
+
         boolean sent = false;
         for (ResponseConfig response : responses) {
-            if (!matchesApp(response, sbn)) {
+            if (response == null) {
+                continue;
+            }
+            if (!response.matchesApp(packageName)) {
                 continue;
             }
             if (matchesExcludedContacts(response, sbn)) {
@@ -60,141 +134,87 @@ public class MyNotificationListenerService extends NotificationListenerService {
                 Log.d(TAG, "Response criteria matched for response: " + response.title);
                 if (performAutoReply(response, sbn)) {
                     sent = true;
+                    lastReplyTimestamps.put(senderKey, now);
                     break;
                 }
             }
         }
 
-        if (sent && key != null) {
-            handledNotificationKeys.add(key);
+        if (sent) {
+            synchronized (handledNotificationKeys) {
+                handledNotificationKeys.add(dedupeKey);
+            }
         }
     }
 
     @Override
     public void onNotificationRemoved(StatusBarNotification sbn) {
         super.onNotificationRemoved(sbn);
-        Log.d(TAG, "Notification removed: " + sbn.getPackageName());
-    }
-
-    private boolean matchesApp(ResponseConfig response, StatusBarNotification sbn) {
-        if (response.allApps) {
-            if (isVoiceTriggerSelected(response) && response.allowedApps.isEmpty()) {
-                return false;
-            }
-            return true;
-        }
-        return response.allowedApps.contains(sbn.getPackageName());
     }
 
     private boolean matchesUserWhitelist(StatusBarNotification sbn) {
         List<ContactWhitelistStore.ContactEntry> whitelist = ContactWhitelistStore.getContacts(this);
-        Log.d(TAG, "Whitelist loaded: " + ContactWhitelistStore.getWhitelistSummary(this));
         if (whitelist.isEmpty()) {
-            return true;
+            return true; // No whitelist defined -> reply to all
         }
 
-        Notification notification = sbn.getNotification();
-        if (notification == null) {
-            return false;
-        }
-
-        Bundle extras = notification.extras;
-        String title = stringOf(extras.getCharSequence(Notification.EXTRA_TITLE));
-        String text = stringOf(extras.getCharSequence(Notification.EXTRA_TEXT));
-        String summary = stringOf(extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT));
-        String subText = stringOf(extras.getCharSequence(Notification.EXTRA_SUB_TEXT));
-        String titleBig = stringOf(extras.getCharSequence(Notification.EXTRA_TITLE_BIG));
-        String conversationTitle = stringOf(extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE));
-        StringBuilder sourceBuilder = new StringBuilder(title)
-                .append(" ")
-                .append(titleBig)
-                .append(" ")
-                .append(conversationTitle)
-                .append(" ")
-                .append(text)
-                .append(" ")
-                .append(summary)
-                .append(" ")
-                .append(subText);
-
-        CharSequence[] textLines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES);
-        if (textLines != null) {
-            for (CharSequence line : textLines) {
-                sourceBuilder.append(" ").append(stringOf(line));
-            }
-        }
-
-        if (extras.containsKey(Notification.EXTRA_INFO_TEXT)) {
-            sourceBuilder.append(" ").append(stringOf(extras.getCharSequence(Notification.EXTRA_INFO_TEXT)));
-        }
-
-        for (String key : extras.keySet()) {
-            Object value = extras.get(key);
-            if (value instanceof CharSequence) {
-                sourceBuilder.append(" ").append(stringOf((CharSequence) value));
-            } else if (value instanceof CharSequence[]) {
-                for (CharSequence item : (CharSequence[]) value) {
-                    sourceBuilder.append(" ").append(stringOf(item));
-                }
-            }
-        }
-
-        NotificationCompat.MessagingStyle style = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(notification);
-        if (style != null) {
-            if (style.getUser() != null && style.getUser().getName() != null) {
-                sourceBuilder.append(" ").append(style.getUser().getName());
-            }
-            for (NotificationCompat.MessagingStyle.Message message : style.getMessages()) {
-                if (message.getPerson() != null && message.getPerson().getName() != null) {
-                    sourceBuilder.append(" ").append(message.getPerson().getName());
-                } else if (message.getSender() != null) {
-                    sourceBuilder.append(" ").append(message.getSender());
-                }
-                sourceBuilder.append(" ").append(stringOf(message.getText()));
-            }
-        }
-
-        String source = sourceBuilder.toString().toLowerCase();
-        Log.d(TAG, "Notification source text for whitelist matching: " + source);
-        boolean match = ContactWhitelistStore.matchesSource(this, source);
-        Log.d(TAG, "Whitelist match result: " + match);
-        return match;
-    }
-
-    private boolean matchesResponseCriteria(ResponseConfig response, StatusBarNotification sbn) {
-        boolean keywordMatch = true;
-        if (isKeywordTriggerSelected(response)) {
-            keywordMatch = matchesKeywordTrigger(response, sbn);
-        }
-        boolean voiceMatch = true;
-        if (isVoiceTriggerSelected(response)) {
-            voiceMatch = isSupportedVoiceNotification(sbn);
-        }
-        boolean socialMatch = true;
-        if (isSocialTriggerSelected(response)) {
-            socialMatch = matchesSocialLinkTrigger(sbn);
-        }
-        return keywordMatch && voiceMatch && socialMatch;
+        String sender = buildSenderSource(sbn);
+        Log.d(TAG, "Matching sender against whitelist: " + sender);
+        return ContactWhitelistStore.matchesSource(this, sender);
     }
 
     private boolean matchesExcludedContacts(ResponseConfig response, StatusBarNotification sbn) {
         if (response.excludedContacts == null || response.excludedContacts.isEmpty()) {
             return false;
         }
-        String source = buildNotificationSource(sbn).toLowerCase(Locale.ROOT);
+        String sender = buildSenderSource(sbn).toLowerCase(Locale.ROOT);
+        String senderNormalized = ContactWhitelistStore.normalizeForMatch(sender);
+
         for (String excluded : response.excludedContacts) {
             if (excluded == null) {
                 continue;
             }
-            String normalized = excluded.trim();
-            if (normalized.isEmpty()) {
+            String normalizedExcluded = excluded.trim().toLowerCase(Locale.ROOT);
+            if (normalizedExcluded.isEmpty()) {
                 continue;
             }
-            String lower = normalized.toLowerCase(Locale.ROOT);
-            if (source.contains(lower) || source.contains(normalizeKeywordText(lower))) {
+            if (sender.contains(normalizedExcluded)) {
+                return true;
+            }
+            String noAccentsExcluded = ContactWhitelistStore.normalizeForMatch(normalizedExcluded);
+            if (!noAccentsExcluded.isEmpty() && senderNormalized.contains(noAccentsExcluded)) {
                 return true;
             }
         }
+        return false;
+    }
+
+    private boolean matchesResponseCriteria(ResponseConfig response, StatusBarNotification sbn) {
+        // If no criteria specified, it acts as a default/catch-all response
+        if (response.triggers == null || response.triggers.isEmpty()) {
+            return true;
+        }
+
+        boolean hasKeywordTrigger = response.isKeywordTriggerSelected();
+        boolean hasVoiceTrigger = response.isVoiceTriggerSelected();
+        boolean hasSocialTrigger = response.isSocialTriggerSelected();
+
+        // If unknown triggers, treat as matched
+        if (!hasKeywordTrigger && !hasVoiceTrigger && !hasSocialTrigger) {
+            return true;
+        }
+
+        // Disjunctive (OR) evaluation for active criteria
+        if (hasKeywordTrigger && matchesKeywordTrigger(response, sbn)) {
+            return true;
+        }
+        if (hasVoiceTrigger && isSupportedVoiceNotification(sbn)) {
+            return true;
+        }
+        if (hasSocialTrigger && matchesSocialLinkTrigger(sbn)) {
+            return true;
+        }
+
         return false;
     }
 
@@ -202,17 +222,22 @@ public class MyNotificationListenerService extends NotificationListenerService {
         if (response.keywords == null || response.keywords.isEmpty()) {
             return false;
         }
-        String source = buildNotificationSource(sbn).toLowerCase(Locale.ROOT);
+        String content = buildMessageContent(sbn).toLowerCase(Locale.ROOT);
+        String normalizedContent = normalizeKeywordText(content);
+
         for (String keyword : response.keywords) {
             if (keyword == null) {
                 continue;
             }
-            String normalized = keyword.trim();
-            if (normalized.isEmpty()) {
+            String trimmed = keyword.trim().toLowerCase(Locale.ROOT);
+            if (trimmed.isEmpty()) {
                 continue;
             }
-            String lower = normalized.toLowerCase(Locale.ROOT);
-            if (source.contains(lower) || source.contains(normalizeKeywordText(lower))) {
+            if (content.contains(trimmed)) {
+                return true;
+            }
+            String normalizedKeyword = normalizeKeywordText(trimmed);
+            if (!normalizedKeyword.isEmpty() && normalizedContent.contains(normalizedKeyword)) {
                 return true;
             }
         }
@@ -220,26 +245,13 @@ public class MyNotificationListenerService extends NotificationListenerService {
     }
 
     private boolean matchesSocialLinkTrigger(StatusBarNotification sbn) {
-        String source = buildNotificationSource(sbn).toLowerCase(Locale.ROOT);
-        return source.contains("http") || source.contains("www.") || source.contains("instagram")
-                || source.contains("tiktok") || source.contains("snapchat") || source.contains("x.com")
-                || source.contains("twitter") || source.contains("telegram") || source.contains("discord");
-    }
-
-    private boolean isKeywordTriggerSelected(ResponseConfig response) {
-        return response.triggers.stream().anyMatch(trigger ->
-                trigger.equalsIgnoreCase("mots-clés") || trigger.equalsIgnoreCase("keyword") || trigger.equalsIgnoreCase("keywords"));
-    }
-
-    private boolean isSocialTriggerSelected(ResponseConfig response) {
-        return response.triggers.stream().anyMatch(trigger ->
-                trigger.equalsIgnoreCase("liens/réseaux sociaux") || trigger.equalsIgnoreCase("liens")
-                        || trigger.equalsIgnoreCase("réseaux sociaux") || trigger.equalsIgnoreCase("social"));
-    }
-
-    private boolean isVoiceTriggerSelected(ResponseConfig response) {
-        return response.triggers.stream().anyMatch(trigger ->
-                trigger.equalsIgnoreCase("vocaux") || trigger.equalsIgnoreCase("voice") || trigger.equalsIgnoreCase("audio"));
+        String content = buildMessageContent(sbn).toLowerCase(Locale.ROOT);
+        return content.contains("http://") || content.contains("https://") || content.contains("www.")
+                || content.contains("instagram.com") || content.contains("tiktok.com")
+                || content.contains("snapchat.com") || content.contains("x.com")
+                || content.contains("twitter.com") || content.contains("t.me/")
+                || content.contains("discord.gg") || content.contains("discord.com")
+                || content.contains("youtu.be") || content.contains("youtube.com");
     }
 
     private boolean isSupportedVoiceNotification(StatusBarNotification sbn) {
@@ -253,16 +265,12 @@ public class MyNotificationListenerService extends NotificationListenerService {
             return false;
         }
 
-        Bundle extras = notification.extras;
-        String content = (stringOf(extras.getCharSequence(Notification.EXTRA_TITLE)) + " " +
-                stringOf(extras.getCharSequence(Notification.EXTRA_TEXT)) + " " +
-                stringOf(extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT)) + " " +
-                stringOf(extras.getCharSequence(Notification.EXTRA_SUB_TEXT))).toLowerCase();
-
+        String content = buildMessageContent(sbn).toLowerCase(Locale.ROOT);
         if (content.contains("message vocal") || content.contains("audio message") ||
-                content.contains("message audio") || content.contains("audio") ||
-                content.contains("voice message") || content.contains("voice note")) {
-            Log.d(TAG, "Detected voice note by content string for " + packageName);
+                content.contains("message audio") || content.contains("voice message") ||
+                content.contains("voice note") || content.contains("note vocale") ||
+                content.contains("vocal (") || content.contains("audio (")) {
+            Log.d(TAG, "Detected voice note by text content for " + packageName);
             return true;
         }
 
@@ -270,7 +278,6 @@ public class MyNotificationListenerService extends NotificationListenerService {
         if (style != null) {
             for (NotificationCompat.MessagingStyle.Message message : style.getMessages()) {
                 String mimeType = message.getDataMimeType();
-                Log.d(TAG, "Message mimeType=" + mimeType + " text=" + message.getText());
                 if (mimeType != null && mimeType.startsWith("audio/")) {
                     Log.d(TAG, "Detected voice note by mimeType for " + packageName);
                     return true;
@@ -281,59 +288,88 @@ public class MyNotificationListenerService extends NotificationListenerService {
         return false;
     }
 
-    private String buildNotificationSource(StatusBarNotification sbn) {
+    /**
+     * Extracts only sender information (Title, conversation, remote sender)
+     * excluding message body to prevent false positives in whitelist matching.
+     */
+    private String buildSenderSource(StatusBarNotification sbn) {
         Notification notification = sbn.getNotification();
         if (notification == null) {
             return "";
         }
 
         Bundle extras = notification.extras;
-        StringBuilder sourceBuilder = new StringBuilder();
-        sourceBuilder.append(stringOf(extras.getCharSequence(Notification.EXTRA_TITLE))).append(" ")
-                .append(stringOf(extras.getCharSequence(Notification.EXTRA_TEXT))).append(" ")
-                .append(stringOf(extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT))).append(" ")
-                .append(stringOf(extras.getCharSequence(Notification.EXTRA_SUB_TEXT))).append(" ")
-                .append(stringOf(extras.getCharSequence(Notification.EXTRA_TITLE_BIG))).append(" ")
-                .append(stringOf(extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)));
+        StringBuilder sb = new StringBuilder();
+
+        sb.append(stringOf(extras.getCharSequence(Notification.EXTRA_TITLE))).append(" ")
+          .append(stringOf(extras.getCharSequence(Notification.EXTRA_TITLE_BIG))).append(" ")
+          .append(stringOf(extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE))).append(" ")
+          .append(stringOf(extras.getCharSequence(Notification.EXTRA_SUB_TEXT)));
+
+        NotificationCompat.MessagingStyle style = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(notification);
+        if (style != null) {
+            for (NotificationCompat.MessagingStyle.Message message : style.getMessages()) {
+                if (message.getPerson() != null && message.getPerson().getName() != null) {
+                    sb.append(" ").append(message.getPerson().getName());
+                    if (message.getPerson().getUri() != null) {
+                        sb.append(" ").append(message.getPerson().getUri());
+                    }
+                } else if (message.getSender() != null) {
+                    sb.append(" ").append(message.getSender());
+                }
+            }
+        }
+
+        return sb.toString().trim();
+    }
+
+    private String extractSenderName(StatusBarNotification sbn) {
+        Notification notification = sbn.getNotification();
+        if (notification == null) return "";
+        CharSequence title = notification.extras.getCharSequence(Notification.EXTRA_TITLE);
+        return title != null ? title.toString().trim() : "";
+    }
+
+    /**
+     * Extracts message content (body text, lines, messaging messages)
+     * used for keyword matching and voice detection.
+     */
+    private String buildMessageContent(StatusBarNotification sbn) {
+        Notification notification = sbn.getNotification();
+        if (notification == null) {
+            return "";
+        }
+
+        Bundle extras = notification.extras;
+        StringBuilder sb = new StringBuilder();
+
+        sb.append(stringOf(extras.getCharSequence(Notification.EXTRA_TEXT))).append(" ")
+          .append(stringOf(extras.getCharSequence(Notification.EXTRA_BIG_TEXT))).append(" ")
+          .append(stringOf(extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT))).append(" ")
+          .append(stringOf(extras.getCharSequence(Notification.EXTRA_INFO_TEXT)));
 
         CharSequence[] textLines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES);
         if (textLines != null) {
             for (CharSequence line : textLines) {
-                sourceBuilder.append(" ").append(stringOf(line));
-            }
-        }
-
-        for (String key : extras.keySet()) {
-            Object value = extras.get(key);
-            if (value instanceof CharSequence) {
-                sourceBuilder.append(" ").append(stringOf((CharSequence) value));
-            } else if (value instanceof CharSequence[]) {
-                for (CharSequence item : (CharSequence[]) value) {
-                    sourceBuilder.append(" ").append(stringOf(item));
-                }
+                sb.append(" ").append(stringOf(line));
             }
         }
 
         NotificationCompat.MessagingStyle style = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(notification);
         if (style != null) {
-            if (style.getUser() != null && style.getUser().getName() != null) {
-                sourceBuilder.append(" ").append(style.getUser().getName());
-            }
             for (NotificationCompat.MessagingStyle.Message message : style.getMessages()) {
-                if (message.getPerson() != null && message.getPerson().getName() != null) {
-                    sourceBuilder.append(" ").append(message.getPerson().getName());
-                } else if (message.getSender() != null) {
-                    sourceBuilder.append(" ").append(message.getSender());
-                }
-                sourceBuilder.append(" ").append(stringOf(message.getText()));
+                sb.append(" ").append(stringOf(message.getText()));
             }
         }
 
-        return sourceBuilder.toString();
+        return sb.toString().trim();
     }
 
-    private String normalizeKeywordText(String value) {
-        return value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "");
+    public static String normalizeKeywordText(String value) {
+        if (value == null) return "";
+        String decomposed = Normalizer.normalize(value, Normalizer.Form.NFD);
+        String noAccents = decomposed.replaceAll("\\p{M}", "");
+        return noAccents.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim();
     }
 
     private String stringOf(CharSequence cs) {
@@ -347,53 +383,142 @@ public class MyNotificationListenerService extends NotificationListenerService {
     }
 
     private boolean performAutoReply(ResponseConfig response, StatusBarNotification sbn) {
-        Log.d(TAG, "Would send auto reply for " + sbn.getPackageName() + ": " + response.text);
-
         Notification notification = sbn.getNotification();
-        if (notification == null) {
+        if (notification == null || TextUtils.isEmpty(response.text)) {
             return false;
         }
 
-        boolean sent = tryReplyViaNotificationAction(notification, response.text);
-        if (sent) {
-            Log.d(TAG, "Auto-reply sent via notification action");
-        } else {
-            Log.d(TAG, "No reply action available for this notification");
-        }
-        return sent;
+        Log.d(TAG, "Sending auto-reply to " + sbn.getPackageName() + ": " + response.text);
+        return tryReplyViaNotificationAction(notification, response.text);
     }
 
     private boolean tryReplyViaNotificationAction(Notification notification, String replyText) {
-        if (notification.actions == null) {
-            return false;
+        // 1. Try platform Notification.actions
+        if (notification.actions != null) {
+            for (Notification.Action action : notification.actions) {
+                if (action == null) continue;
+                if (isReplyAction(action.title, action.getRemoteInputs())) {
+                    if (sendReply(action.actionIntent, action.getRemoteInputs(), replyText)) {
+                        return true;
+                    }
+                }
+            }
         }
 
-        for (Notification.Action action : notification.actions) {
-            if (action == null || action.title == null) {
-                continue;
-            }
-            String title = action.title.toString().toLowerCase();
-            if (title.contains("reply") || title.contains("répondre") || title.contains("reply all") || title.contains("réponse")) {
-                PendingIntent pendingIntent = action.actionIntent;
-                RemoteInput remoteInput = null;
-                if (action.getRemoteInputs() != null && action.getRemoteInputs().length > 0) {
-                    remoteInput = action.getRemoteInputs()[0];
-                }
-                if (pendingIntent != null && remoteInput != null) {
+        // 2. Try NotificationCompat direct actions
+        int actionCount = NotificationCompat.getActionCount(notification);
+        for (int i = 0; i < actionCount; i++) {
+            NotificationCompat.Action compatAction = NotificationCompat.getAction(notification, i);
+            if (compatAction == null) continue;
+            if (compatAction.getSemanticAction() == NotificationCompat.Action.SEMANTIC_ACTION_REPLY
+                    || isReplyAction(compatAction.getTitle(), compatAction.getRemoteInputs())) {
+                androidx.core.app.RemoteInput[] compatInputs = compatAction.getRemoteInputs();
+                if (compatAction.getActionIntent() != null && compatInputs != null && compatInputs.length > 0) {
                     Intent intent = new Intent();
+                    intent.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
                     Bundle bundle = new Bundle();
-                    bundle.putCharSequence(remoteInput.getResultKey(), replyText);
-                    RemoteInput.addResultsToIntent(new RemoteInput[]{remoteInput}, intent, bundle);
+                    bundle.putCharSequence(compatInputs[0].getResultKey(), replyText);
+                    androidx.core.app.RemoteInput.addResultsToIntent(compatInputs, intent, bundle);
                     try {
-                        pendingIntent.send(this, 0, intent);
+                        compatAction.getActionIntent().send(this, 0, intent);
                         return true;
                     } catch (PendingIntent.CanceledException e) {
-                        Log.e(TAG, "Failed to send reply intent", e);
+                        Log.e(TAG, "PendingIntent canceled in compatAction", e);
+                    }
+                }
+            }
+        }
+
+        // 3. Try WearableExtender actions (WhatsApp and other apps frequently put reply action here)
+        NotificationCompat.WearableExtender wearableExtender = new NotificationCompat.WearableExtender(notification);
+        for (NotificationCompat.Action wearAction : wearableExtender.getActions()) {
+            if (wearAction == null || wearAction.getActionIntent() == null) continue;
+            if (wearAction.getSemanticAction() == NotificationCompat.Action.SEMANTIC_ACTION_REPLY
+                    || isReplyAction(wearAction.getTitle(), wearAction.getRemoteInputs())) {
+                androidx.core.app.RemoteInput[] inputs = wearAction.getRemoteInputs();
+                if (inputs != null && inputs.length > 0) {
+                    Intent intent = new Intent();
+                    intent.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
+                    Bundle bundle = new Bundle();
+                    bundle.putCharSequence(inputs[0].getResultKey(), replyText);
+                    androidx.core.app.RemoteInput.addResultsToIntent(inputs, intent, bundle);
+                    try {
+                        wearAction.getActionIntent().send(this, 0, intent);
+                        return true;
+                    } catch (PendingIntent.CanceledException e) {
+                        Log.e(TAG, "PendingIntent canceled in wearable action", e);
                     }
                 }
             }
         }
 
         return false;
+    }
+
+    private boolean isReplyAction(CharSequence title, RemoteInput[] remoteInputs) {
+        if (remoteInputs == null || remoteInputs.length == 0) {
+            return false;
+        }
+        for (RemoteInput input : remoteInputs) {
+            if (input != null && input.getAllowFreeFormInput()) {
+                return true;
+            }
+        }
+        if (title != null) {
+            String lower = title.toString().toLowerCase(Locale.ROOT);
+            return lower.contains("reply") || lower.contains("répondre") || lower.contains("repondre")
+                    || lower.contains("antworten") || lower.contains("responder")
+                    || lower.contains("rispondi") || lower.contains("réponse")
+                    || lower.contains("reponse") || lower.contains("message");
+        }
+        return false;
+    }
+
+    private boolean isReplyAction(CharSequence title, androidx.core.app.RemoteInput[] remoteInputs) {
+        if (remoteInputs == null || remoteInputs.length == 0) {
+            return false;
+        }
+        for (androidx.core.app.RemoteInput input : remoteInputs) {
+            if (input != null && input.getAllowFreeFormInput()) {
+                return true;
+            }
+        }
+        if (title != null) {
+            String lower = title.toString().toLowerCase(Locale.ROOT);
+            return lower.contains("reply") || lower.contains("répondre") || lower.contains("repondre")
+                    || lower.contains("antworten") || lower.contains("responder")
+                    || lower.contains("rispondi") || lower.contains("réponse")
+                    || lower.contains("reponse") || lower.contains("message");
+        }
+        return false;
+    }
+
+    private boolean sendReply(PendingIntent pendingIntent, RemoteInput[] remoteInputs, String replyText) {
+        if (pendingIntent == null || remoteInputs == null || remoteInputs.length == 0) {
+            return false;
+        }
+        RemoteInput targetInput = null;
+        for (RemoteInput input : remoteInputs) {
+            if (input != null && input.getAllowFreeFormInput()) {
+                targetInput = input;
+                break;
+            }
+        }
+        if (targetInput == null) {
+            targetInput = remoteInputs[0];
+        }
+
+        Intent intent = new Intent();
+        intent.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
+        Bundle bundle = new Bundle();
+        bundle.putCharSequence(targetInput.getResultKey(), replyText);
+        RemoteInput.addResultsToIntent(new RemoteInput[]{targetInput}, intent, bundle);
+        try {
+            pendingIntent.send(this, 0, intent);
+            return true;
+        } catch (PendingIntent.CanceledException e) {
+            Log.e(TAG, "Failed to send reply intent", e);
+            return false;
+        }
     }
 }
